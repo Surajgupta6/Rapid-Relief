@@ -1,0 +1,446 @@
+<%- include('../partials/header') %>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h2>Welcome, <%= hospital.name %></h2>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Hospital Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <p><strong>Email:</strong> <%= hospital.email %></p>
+                            <p><strong>Contact Number:</strong> <%= hospital.contactNumber %></p>
+                            <p><strong>Address:</strong> <%= hospital.address %></p>
+                            <p><strong>License Number:</strong> <%= hospital.licenseNumber %></p>
+                            <p><strong>Current Location:</strong> 
+                                <span id="currentLocation">
+                                    <%= hospital.location.coordinates[1].toFixed(6) %>, <%= hospital.location.coordinates[0].toFixed(6) %>
+                                </span>
+                                <button id="fetchLocation" class="btn btn-primary btn-sm ms-2">
+                                    <i class="fas fa-location-arrow"></i> Update Location
+                                </button>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Emergency Department Status</h5>
+                        </div>
+                        <div class="card-body">
+                            <p><strong>Available Beds:</strong> <%= hospital.emergencyDepartment.availableBeds %></p>
+                            <p><strong>Total Beds:</strong> <%= hospital.emergencyDepartment.totalBeds %></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map Section -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Ambulance Locations</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="map" style="height: 500px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ambulance Status Table -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Ambulance Status</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Driver Name</th>
+                                            <th>Vehicle Number</th>
+                                            <th>Last Location</th>
+                                            <th>Last Updated</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ambulanceTableBody">
+                                        <!-- Ambulance data will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4>Associated Drivers</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Contact</th>
+                                    <th>Vehicle Number</th>
+                                    <th>Vehicle Type</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <% drivers.forEach(driver => { %>
+                                    <tr data-driver-id="<%= driver._id %>">
+                                        <td><%= driver.name %></td>
+                                        <td><%= driver.contactNumber %></td>
+                                        <td><%= driver.vehicleNumber %></td>
+                                        <td><%= driver.vehicleType %></td>
+                                    </tr>
+                                <% }); %>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4>Recent Bookings</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Booking ID</th>
+                                    <th>Patient Name</th>
+                                    <th>Pickup Location</th>
+                                    <th>Driver</th>
+                                    <th>Status</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <% bookings.forEach(booking => { %>
+                                    <tr>
+                                        <td><%= booking._id %></td>
+                                        <td>
+                                            <% if (booking.isAnonymous) { %>
+                                                <span class="badge bg-info">Anonymous</span>
+                                            <% } else { %>
+                                                <%= booking.patientName %>
+                                            <% } %>
+                                        </td>
+                                        <td>
+                                            <% if (booking.isAnonymous) { %>
+                                                <span class="text-muted">
+                                                    <%= booking.pickupLocation.coordinates[1].toFixed(6) %>, 
+                                                    <%= booking.pickupLocation.coordinates[0].toFixed(6) %>
+                                                </span>
+                                            <% } else { %>
+                                                <%= booking.pickupLocation.address %>
+                                            <% } %>
+                                        </td>
+                                        <td>
+                                            <% if (booking.driver) { %>
+                                                <%= booking.driver.name %>
+                                            <% } else { %>
+                                                <span class="text-muted">Not assigned</span>
+                                            <% } %>
+                                        </td>
+                                        <td>
+                                            <span class="badge <%= booking.status === 'completed' ? 'bg-success' : 
+                                                       booking.status === 'in-progress' ? 'bg-primary' : 
+                                                       booking.status === 'cancelled' ? 'bg-danger' : 'bg-warning' %>">
+                                                <%= booking.status %>
+                                            </span>
+                                        </td>
+                                        <td><%= new Date(booking.createdAt).toLocaleString() %></td>
+                                    </tr>
+                                <% }); %>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h4>Bed Availability Management</h4>
+                </div>
+                <div class="card-body">
+                    <form id="bedAvailabilityForm">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card mb-3">
+                                    <div class="card-header bg-primary text-white">
+                                        <h5>General Ward</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Total Capacity:</strong> <%= hospital.generalWard.capacity %></p>
+                                        <div class="form-group">
+                                            <label for="generalWardAvailable">Available Beds</label>
+                                            <input type="number" class="form-control" id="generalWardAvailable" 
+                                                name="generalWard[availableBeds]" 
+                                                value="<%= hospital.generalWard.availableBeds %>"
+                                                min="0" max="<%= hospital.generalWard.capacity %>">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card mb-3">
+                                    <div class="card-header bg-success text-white">
+                                        <h5>OPD</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Total Capacity:</strong> <%= hospital.opd.capacity %></p>
+                                        <div class="form-group">
+                                            <label for="opdAvailable">Available Beds</label>
+                                            <input type="number" class="form-control" id="opdAvailable" 
+                                                name="opd[availableBeds]" 
+                                                value="<%= hospital.opd.availableBeds %>"
+                                                min="0" max="<%= hospital.opd.capacity %>">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card mb-3">
+                                    <div class="card-header bg-danger text-white">
+                                        <h5>Emergency Department</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Total Capacity:</strong> <%= hospital.emergencyDepartment.capacity %></p>
+                                        <div class="form-group">
+                                            <label for="emergencyAvailable">Available Beds</label>
+                                            <input type="number" class="form-control" id="emergencyAvailable" 
+                                                name="emergencyDepartment[availableBeds]" 
+                                                value="<%= hospital.emergencyDepartment.availableBeds %>"
+                                                min="0" max="<%= hospital.emergencyDepartment.capacity %>">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <button type="submit" class="btn btn-primary">Update Bed Availability</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('bedAvailabilityForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+        generalWard: {
+            availableBeds: parseInt(document.getElementById('generalWardAvailable').value)
+        },
+        opd: {
+            availableBeds: parseInt(document.getElementById('opdAvailable').value)
+        },
+        emergencyDepartment: {
+            availableBeds: parseInt(document.getElementById('emergencyAvailable').value)
+        }
+    };
+
+    try {
+        const response = await fetch('/hospital/update-beds', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        if (response.ok) {
+            alert('Bed availability updated successfully!');
+            window.location.reload();
+        } else {
+            throw new Error('Failed to update bed availability');
+        }
+    } catch (error) {
+        alert('Error updating bed availability: ' + error.message);
+    }
+});
+
+// Add location fetching functionality
+document.getElementById('fetchLocation').addEventListener('click', async () => {
+    if (!navigator.geolocation) {
+        alert('Geolocation is not supported by your browser');
+        return;
+    }
+
+    try {
+        const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
+
+        const { latitude, longitude } = position.coords;
+        
+        // Update the display
+        document.getElementById('currentLocation').textContent = 
+            `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+
+        // Update the hospital marker on the map
+        const newLatLng = [latitude, longitude];
+        hospitalMarker.setLatLng(newLatLng);
+        map.setView(newLatLng);
+
+        // Send the new coordinates to the server
+        const response = await fetch('/hospital/update-location', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                coordinates: [longitude, latitude] // MongoDB uses [longitude, latitude] format
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to update location');
+        }
+
+        alert('Location updated successfully!');
+    } catch (error) {
+        console.error('Error fetching location:', error);
+        alert('Error updating location: ' + error.message);
+    }
+});
+</script>
+
+<!-- Add Leaflet CSS and JS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+
+<script>
+    // Initialize map
+    const map = L.map('map').setView([<%= hospital.location.coordinates[1] %>, <%= hospital.location.coordinates[0] %>], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Add hospital marker
+    const hospitalMarker = L.marker([<%= hospital.location.coordinates[1] %>, <%= hospital.location.coordinates[0] %>])
+        .addTo(map)
+        .bindPopup('<%= hospital.name %>')
+        .openPopup();
+
+    // Store ambulance markers
+    const ambulanceMarkers = {};
+
+    // Function to update ambulance locations
+    function updateAmbulanceLocations(ambulances) {
+        const tableBody = document.getElementById('ambulanceTableBody');
+        tableBody.innerHTML = '';
+
+        ambulances.forEach(ambulance => {
+            // Update map marker
+            if (ambulanceMarkers[ambulance.driverId]) {
+                map.removeLayer(ambulanceMarkers[ambulance.driverId]);
+            }
+
+            const marker = L.marker([ambulance.coordinates[1], ambulance.coordinates[0]])
+                .addTo(map)
+                .bindPopup(`${ambulance.name} (${ambulance.vehicleNumber})`);
+            
+            ambulanceMarkers[ambulance.driverId] = marker;
+
+            // Update table
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${ambulance.name}</td>
+                <td>${ambulance.vehicleNumber}</td>
+                <td>${ambulance.coordinates ? `${ambulance.coordinates[1].toFixed(6)}, ${ambulance.coordinates[0].toFixed(6)}` : 'N/A'}</td>
+                <td>${new Date(ambulance.lastUpdated).toLocaleString()}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+    }
+
+    // Initial load of ambulance locations
+    fetch('/hospital/ambulance-locations')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateAmbulanceLocations(data.data.ambulances);
+            }
+        })
+        .catch(error => console.error('Error fetching ambulance locations:', error));
+
+    // Set up Socket.IO for real-time updates
+    const socket = io();
+    
+    socket.on('ambulanceLocationUpdate', (data) => {
+        if (data.hospitalId === '<%= hospital._id %>') {
+            fetch('/hospital/ambulance-locations')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateAmbulanceLocations(data.data.ambulances);
+                    }
+                })
+                .catch(error => console.error('Error fetching ambulance locations:', error));
+        }
+    });
+</script>
+
+<style>
+    .hospital-marker, .ambulance-marker {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .hospital-marker i, .ambulance-marker i {
+        filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5));
+    }
+</style>
+
+<%- include('../partials/footer') %>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  // Listen for real-time driver status changes
+  const socketStatus = io();
+  function showDriverStatusToast(driverName, isAvailable) {
+    const toast = document.getElementById('driverStatusToast');
+    const toastContent = document.getElementById('driverStatusToastContent');
+    toastContent.textContent = `${driverName} is now ${isAvailable ? 'Online' : 'Offline'}`;
+    toastContent.className = 'alert ' + (isAvailable ? 'alert-success' : 'alert-danger');
+    toast.style.display = 'block';
+    setTimeout(() => { toast.style.display = 'none'; }, 4000);
+  }
+  socketStatus.on('driverStatusChanged', function(data) {
+    // data: { driverId, isAvailable, isOnline }
+    const row = document.querySelector(`[data-driver-id='${data.driverId}']`);
+    if (row) {
+      const badge = row.querySelector('.driver-status-badge');
+      if (badge) {
+        badge.textContent = data.isAvailable ? 'Online' : 'Offline';
+        badge.className = 'badge ' + (data.isAvailable ? 'bg-success' : 'bg-danger') + ' driver-status-badge';
+      }
+      // Get driver name from the row
+      const driverName = row.querySelector('td') ? row.querySelector('td').textContent : 'Driver';
+      showDriverStatusToast(driverName, data.isAvailable);
+    }
+  });
+</script>
+
+<!-- Toast notification container -->
+<div id="driverStatusToast" style="position: fixed; top: 20px; right: 20px; z-index: 9999; display: none; min-width: 250px;">
+  <div id="driverStatusToastContent" class="alert" role="alert"></div>
+</div> 

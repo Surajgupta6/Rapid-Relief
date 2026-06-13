@@ -1,0 +1,52 @@
+{
+  "nav": {
+    "home": "Home",
+    "login": "Login",
+    "register": "Register",
+    "brand": "Rapid Relief"
+  },
+  "login": {
+    "title": "Account Login",
+    "emailLabel": "Email Address",
+    "passwordLabel": "Password",
+    "submitButton": "Login",
+    "noAccount": "Don't have an account?",
+    "registerHere": "Register here",
+    "error": "Login failed. Please check your credentials and try again."
+  },
+  "register": {
+    "pageTitle": "Register | Rapid Relief",
+    "title": "Account Register",
+    "nameLabel": "Name",
+    "emailLabel": "Email Address",
+    "phoneLabel": "Phone Number",
+    "addressLabel": "Address",
+    "passwordLabel": "Password",
+    "confirmPasswordLabel": "Confirm Password",
+    "passwordHelp": "Password must be at least 8 characters long",
+    "submitButton": "Register",
+    "haveAccount": "Already have an account?",
+    "loginHere": "Login here",
+    "errors": {
+      "general": "Registration failed. Please check your information and try again.",
+      "passwordMatch": "Passwords do not match!",
+      "tryAgain": "Registration failed. Please try again.",
+      "tryLater": "Registration failed. Please try again later."
+    }
+  },
+  "Hospital Login": "Hospital Login",
+  "Email": "Email",
+  "Password": "Password",
+  "Login": "Login",
+  "Don't have an account?": "Don't have an account?",
+  "Register here": "Register here",
+  "Hospital Information": "Hospital Information",
+  "Bed Availability": "Bed Availability",
+  "Available Beds": "Available Beds",
+  "Total Capacity": "Total Capacity",
+  "Ambulance Status": "Ambulance Status",
+  "Available": "Available",
+  "On Duty": "On Duty",
+  "Total": "Total",
+  "Ambulance Locations": "Ambulance Locations"
+} 

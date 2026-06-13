@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Dashboard | Rapid Relief</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    #map { height: 400px; width: 100%; }
+    .booking-card {
+      transition: all 0.3s ease;
+      border-left: 5px solid #dc3545;
+    }
+    .booking-status { font-size: 0.8rem; }
+    .pending { background-color: #ffc107; color: #000; }
+    .accepted { background-color: #17a2b8; color: #fff; }
+    .inProgress { background-color: #007bff; color: #fff; }
+    .completed { background-color: #28a745; color: #fff; }
+    .cancelled { background-color: #6c757d; color: #fff; }
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    .status-online {
+      background-color: #28a745;
+    }
+    .status-offline {
+      background-color: #dc3545;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
+    <div class="container">
+      <a class="navbar-brand" href="/driver/dashboard">
+        <i class="fas fa-ambulance me-2"></i>
+        <strong>Rapid Relief</strong>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item"><a class="nav-link active" href="/driver/dashboard">Dashboard</a></li>
+          <li class="nav-item"><a class="nav-link" href="/driver/bookings">Bookings</a></li>
+        </ul>
+        <div class="d-flex">
+          <span class="navbar-text me-3">
+            <i class="fas fa-user-circle me-1"></i> <%= driver.name %>
+          </span>
+          <a href="/auth/logout" class="btn btn-outline-light btn-sm">
+            <i class="fas fa-sign-out-alt me-1"></i> Logout
+          </a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h4>Welcome, <%= driver.name %></h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>Driver Information</h5>
+                            <p><strong>Email:</strong> <%= driver.email %></p>
+                            <p><strong>Contact:</strong> <%= driver.contactNumber %></p>
+                            <p><strong>License Number:</strong> <%= driver.licenseNumber %></p>
+                            <p><strong>Vehicle Number:</strong> <%= driver.vehicleNumber %></p>
+                            <p><strong>Vehicle Type:</strong> <%= driver.vehicleType %></p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Hospital Information</h5>
+                            <p><strong>Name:</strong> <%= driver.hospital.name %></p>
+                            <p><strong>Address:</strong> <%= driver.hospital.address %></p>
+                            <p><strong>Contact:</strong> <%= driver.hospital.contactNumber %></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4>Recent Bookings</h4>
+                    <% if (bookings && bookings.length > 0 && bookings[0].status === 'inProgress') { %>
+                        <button id="completeTripBtn" class="btn btn-success">
+                            <i class="fas fa-check-circle me-2"></i>Complete Trip
+                        </button>
+                    <% } %>
+                </div>
+                <div class="card-body">
+                    <% if (bookings && bookings.length > 0) { %>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Booking ID</th>
+                                        <th>User</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <% bookings.forEach(booking => { %>
+                                        <tr>
+                                            <td><%= booking._id %></td>
+                                            <td>
+                                                <% if (booking.isAnonymous) { %>
+                                                    <span class="badge bg-info">Anonymous</span>
+                                                <% } else if (booking.user) { %>
+                                                    <%= booking.user.name %>
+                                                <% } else { %>
+                                                    <span class="text-muted">User not available</span>
+                                                <% } %>
+                                            </td>
+                                            <td>
+                                                <% if (booking.isAnonymous) { %>
+                                                    <span class="badge bg-warning">Emergency</span>
+                                                <% } else { %>
+                                                    <span class="badge bg-primary">Regular</span>
+                                                <% } %>
+                                            </td>
+                                            <td>
+                                                <% let statusClass = 'bg-danger';
+                                                    if (booking.status === 'pending') statusClass = 'bg-warning';
+                                                    else if (booking.status === 'accepted') statusClass = 'bg-info';
+                                                    else if (booking.status === 'inProgress') statusClass = 'bg-primary';
+                                                    else if (booking.status === 'completed') statusClass = 'bg-success';
+                                                %>
+                                                <span class="badge <%= statusClass %>">
+                                                    <%= booking.status %>
+                                                </span>
+                                            </td>
+                                            <td><%= new Date(booking.createdAt).toLocaleString() %></td>
+                                        </tr>
+                                    <% }); %>
+                                </tbody>
+                            </table>
+                        </div>
+                    <% } else { %>
+                        <p>No recent bookings found.</p>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <% if (bookings && bookings.length > 0) { %>
+  <script>
+    let driverMarker = null;
+    let map = null;
+    let group = null;
+    let locationUpdateInterval = null;
+    let isTripInProgress = false;
+    let socket = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize socket connection
+      socket = io();
+      
+      // Map logic
+      const driverData = <%- JSON.stringify(driver) %>;
+      const bookingData = <%- JSON.stringify(bookings[0] || null) %>;
+      
+      if (driverData && driverData.location && bookingData) {
+        const driverCoords = driverData.location.coordinates; // [lng, lat]
+        const pickupCoords = bookingData.pickupLocation.coordinates; // [lng, lat]
+        const dropCoords = bookingData.dropLocation.coordinates;     // [lng, lat]
+        const isAnonymous = bookingData.type === 'anonymous' || bookingData.isAnonymous;
+
+        // Initialize map and markers
+        initializeMap(driverCoords, pickupCoords, dropCoords, isAnonymous);
+
+        // Start location updates if trip is in progress
+        if (bookingData.status === 'inProgress') {
+          startLocationUpdates(bookingData._id);
+        }
+
+        // Add event listener for complete trip button
+        const completeTripBtn = document.getElementById('completeTripBtn');
+        if (completeTripBtn) {
+          completeTripBtn.addEventListener('click', () => completeTrip(bookingData._id));
+        }
+
+        // Socket event listeners
+        socket.on('userLocationUpdate', (data) => {
+          if (data.bookingId === bookingData._id && isTripInProgress) {
+            updateUserLocation(data.coordinates);
+          }
+        });
+
+        socket.on('bookingStatusUpdated', (data) => {
+          if (data.bookingId === bookingData._id) {
+            updateBookingStatus(data.status);
+            if (data.status === 'inProgress') {
+              startLocationUpdates(bookingData._id);
+            } else if (data.status === 'completed') {
+              stopLocationUpdates();
+            }
+          }
+        });
+      }
+    });
+
+    function initializeMap(driverCoords, pickupCoords, dropCoords, isAnonymous) {
+      // Custom icons
+      const driverIcon = L.icon({
+        iconUrl: 'https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/images/marker-icon.png',
+        iconSize: [25, 41], 
+        iconAnchor: [12, 41], 
+        popupAnchor: [1, -34], 
+        shadowSize: [41, 41],
+        className: 'driver-marker'
+      });
+
+      const patientIcon = L.icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+        iconSize: [25, 41], 
+        iconAnchor: [12, 41], 
+        popupAnchor: [1, -34], 
+        shadowSize: [41, 41],
+        className: 'patient-marker'
+      });
+
+      const emergencyIcon = L.icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+        iconSize: [25, 41], 
+        iconAnchor: [12, 41], 
+        popupAnchor: [1, -34], 
+        shadowSize: [41, 41],
+        className: 'emergency-marker'
+      });
+
+      const hospitalIcon = L.icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+        iconSize: [25, 41], 
+        iconAnchor: [12, 41], 
+        popupAnchor: [1, -34], 
+        shadowSize: [41, 41],
+        className: 'hospital-marker'
+      });
+
+      // Initialize map
+      map = L.map('dashboardMap').setView([pickupCoords[1], pickupCoords[0]], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+
+      // Add markers
+      driverMarker = L.marker([driverCoords[1], driverCoords[0]], { icon: driverIcon })
+        .addTo(map)
+        .bindPopup('Your Location')
+        .openPopup();
+
+      const pickupMarker = L.marker(
+        [pickupCoords[1], pickupCoords[0]], 
+        { icon: isAnonymous ? emergencyIcon : patientIcon }
+      )
+        .addTo(map)
+        .bindPopup(isAnonymous ? 'Emergency Location' : 'Pickup Location')
+        .openPopup();
+
+      if (!isAnonymous) {
+        L.marker([dropCoords[1], dropCoords[0]], { icon: hospitalIcon })
+          .addTo(map)
+          .bindPopup('Dropoff Location');
+      }
+
+      // Draw route
+      if (!isAnonymous) {
+        L.polyline([
+          [driverCoords[1], driverCoords[0]],
+          [pickupCoords[1], pickupCoords[0]],
+          [dropCoords[1], dropCoords[0]]
+        ], { color: 'blue' }).addTo(map);
+      } else {
+        L.polyline([
+          [driverCoords[1], driverCoords[0]],
+          [pickupCoords[1], pickupCoords[0]]
+        ], { color: 'red', dashArray: '5, 10' }).addTo(map);
+      }
+
+      // Fit map bounds
+      const bounds = [
+        [driverCoords[1], driverCoords[0]],
+        [pickupCoords[1], pickupCoords[0]]
+      ];
+      
+      if (!isAnonymous) {
+        bounds.push([dropCoords[1], dropCoords[0]]);
+      }
+      
+      map.fitBounds(bounds);
+    }
+
+    function startLocationUpdates(bookingId) {
+      isTripInProgress = true;
+      if (locationUpdateInterval) {
+        clearInterval(locationUpdateInterval);
+      }
+      
+      locationUpdateInterval = setInterval(() => updateLocation(bookingId), 10000);
+      updateLocation(bookingId); // Initial update
+    }
+
+    function stopLocationUpdates() {
+      isTripInProgress = false;
+      if (locationUpdateInterval) {
+        clearInterval(locationUpdateInterval);
+        locationUpdateInterval = null;
+      }
+    }
+
+    function updateLocation(bookingId) {
+      if (!isTripInProgress) return;
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          
+          // Update map marker
+          if (driverMarker) {
+            driverMarker.setLatLng([lat, lng]);
+            driverMarker.bindPopup('Your Current Location').openPopup();
+          }
+
+          // Send to backend
+          fetch('/driver/api/location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              coordinates: [lng, lat],
+              bookingId: bookingId,
+              isTripInProgress: true
+            })
+          });
+
+          // Emit socket event for real-time updates
+          if (socket) {
+            socket.emit('driverLocationUpdate', {
+              bookingId: bookingId,
+              coordinates: [lng, lat],
+              isTripInProgress: true
+            });
+          }
+        });
+      }
+    }
+
+    async function startTrip(bookingId) {
+      try {
+        const response = await fetch(`/booking/${bookingId}/status`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ status: 'inProgress' })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          startLocationUpdates(bookingId);
+          window.location.reload();
+        } else {
+          throw new Error(data.message || 'Failed to start trip');
+        }
+      } catch (error) {
+        console.error('Error starting trip:', error);
+        alert(error.message || 'Failed to start trip. Please try again.');
+      }
+    }
+
+    async function completeTrip(bookingId) {
+      try {
+        const response = await fetch(`/booking/${bookingId}/status`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ status: 'completed' })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          stopLocationUpdates();
+          window.location.reload();
+        } else {
+          throw new Error(data.message || 'Failed to complete trip');
+        }
+      } catch (error) {
+        console.error('Error completing trip:', error);
+        alert(error.message || 'Failed to complete trip. Please try again.');
+      }
+    }
+
+    function updateBookingStatus(status) {
+      const statusBadge = document.querySelector('.booking-status');
+      if (statusBadge) {
+        statusBadge.textContent = status;
+        statusBadge.className = `booking-status ${status.toLowerCase()}`;
+      }
+
+      // Update action buttons
+      const startTripBtn = document.querySelector('.start-trip-btn');
+      const completeTripBtn = document.querySelector('.complete-trip-btn');
+      
+      if (startTripBtn) {
+        startTripBtn.style.display = status === 'accepted' ? 'block' : 'none';
+      }
+      
+      if (completeTripBtn) {
+        completeTripBtn.style.display = status === 'inProgress' ? 'block' : 'none';
+      }
+    }
+
+    // Make functions globally available
+    window.startTrip = startTrip;
+    window.completeTrip = completeTrip;
+  </script>
+  <% } %>
+</body>
+</html> 

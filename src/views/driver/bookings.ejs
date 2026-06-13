@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Bookings | Driver Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    .booking-card {
+      transition: all 0.3s ease;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+    }
+    .booking-card:hover {
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+    }
+    .error-message {
+      display: none;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border-radius: 0.25rem;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+    .anonymous-badge {
+      background-color: #dc3545;
+      color: white;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
+    <div class="container">
+      <a class="navbar-brand" href="/driver/dashboard">
+        <i class="fas fa-ambulance me-2"></i>
+        <strong>Rapid Relief</strong>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item"><a class="nav-link" href="/driver/dashboard">Dashboard</a></li>
+          <li class="nav-item"><a class="nav-link active" href="/driver/bookings">Bookings</a></li>
+          <li class="nav-item"><a class="nav-link" href="/driver/profile">Profile</a></li>
+        </ul>
+        <div class="d-flex">
+          <span class="navbar-text me-3">
+            <i class="fas fa-user-circle me-1"></i> <span id="driverName">Driver</span>
+          </span>
+          <a href="/auth/logout" class="btn btn-outline-light btn-sm">
+            <i class="fas fa-sign-out-alt me-1"></i> Logout
+          </a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container py-4">
+    <!-- Map for showing booking locations -->
+    <div id="driverMap" style="height: 400px; width: 100%; margin-bottom: 20px;"></div>
+    <div class="row">
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+              <h4 class="mb-0">My Bookings</h4>
+              <div class="d-flex gap-2">
+                <select class="form-select form-select-sm" id="filterStatus">
+                  <option value="all">All Bookings</option>
+                  <option value="pending">Pending</option>
+                  <option value="accepted">Accepted</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <button class="btn btn-sm btn-outline-primary" id="refreshBtn">
+                  <i class="fas fa-sync-alt"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div id="errorMessage" class="error-message">
+              <i class="fas fa-exclamation-circle me-2"></i>
+              <span id="errorText"></span>
+            </div>
+
+            <div id="bookingsList" class="list-group">
+              <!-- Bookings will be loaded here -->
+            </div>
+
+            <div id="noBookings" class="text-center py-5 d-none">
+              <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+              <h5>No bookings found</h5>
+              <p class="text-muted">No bookings match your current filter.</p>
+            </div>
+
+            <div id="loading" class="text-center py-5">
+              <div class="spinner-border text-danger" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async function() {
+      // Initialize socket connection
+      const socket = io();
+      
+      const bookingsList = document.getElementById('bookingsList');
+      const noBookings = document.getElementById('noBookings');
+      const loading = document.getElementById('loading');
+      const filterStatus = document.getElementById('filterStatus');
+      const errorMessage = document.getElementById('errorMessage');
+      const errorText = document.getElementById('errorText');
+      const refreshBtn = document.getElementById('refreshBtn');
+      let currentFilter = 'all';
+      let map = null;
+
+      // Show error message
+      function showError(message) {
+        errorText.textContent = message;
+        errorMessage.style.display = 'block';
+        setTimeout(() => {
+          errorMessage.style.display = 'none';
+        }, 5000);
+      }
+
+      // Load driver name
+      async function loadDriverInfo() {
+        try {
+          const response = await fetch('/auth/current-user');
+          if (!response.ok) throw new Error('Failed to load driver info');
+          
+          const data = await response.json();
+          if (data.status === 'success') {
+            document.getElementById('driverName').textContent = data.data.user.name;
+          }
+        } catch (error) {
+          console.error('Error loading driver info:', error);
+          showError('Failed to load driver information');
+        }
+      }
+
+      // Socket event handling for new bookings
+      socket.on('newBookingAlert', (data) => {
+        const booking = data.booking;
+        const bookingCard = createBookingCard(booking);
+        bookingsList.insertBefore(bookingCard, bookingsList.firstChild);
+        
+        // Update map with the new request
+        updateMap(booking);
+        
+        // Show notification
+        showError(`New booking request received! ${data.totalDrivers} drivers notified.`);
+      });
+
+      // Socket event handling for anonymous requests
+      socket.on('anonymousRequestAlert', (data) => {
+        const booking = data.booking;
+        const bookingCard = createBookingCard(booking);
+        bookingsList.insertBefore(bookingCard, bookingsList.firstChild);
+        
+        // Update map with the new request
+        updateMap(booking);
+        
+        // Show notification
+        showError(`New anonymous request received! ${data.totalDrivers} drivers notified.`);
+      });
+
+      // Accept booking function
+      async function acceptBooking(bookingId) {
+        try {
+          const response = await fetch(`/booking/accept/${bookingId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!response.ok) throw new Error('Failed to accept booking');
+          
+          const data = await response.json();
+          if (data.status === 'success') {
+            // Update the booking card
+            const bookingCard = document.querySelector(`[data-booking-id="${bookingId}"]`);
+            if (bookingCard) {
+              const statusBadge = bookingCard.querySelector('.badge');
+              statusBadge.textContent = 'accepted';
+              statusBadge.className = 'badge bg-info';
+              
+              // Remove accept/decline buttons
+              const actionButtons = bookingCard.querySelector('.mt-2');
+              if (actionButtons) {
+                actionButtons.remove();
+              }
+            }
+            
+            // Show success message
+            showError('Booking accepted successfully!');
+          } else {
+            showError(data.message || 'Failed to accept booking');
+          }
+        } catch (error) {
+          console.error('Error accepting booking:', error);
+          showError('Failed to accept booking. Please try again.');
+        }
+      }
+
+      // Decline booking function
+      async function declineBooking(bookingId) {
+        try {
+          const response = await fetch(`/booking/decline/${bookingId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!response.ok) throw new Error('Failed to decline booking');
+          
+          const data = await response.json();
+          if (data.status === 'success') {
+            // Update the booking card
+            const bookingCard = document.querySelector(`[data-booking-id="${bookingId}"]`);
+            if (bookingCard) {
+              const statusBadge = bookingCard.querySelector('.badge');
+              statusBadge.textContent = 'declined';
+              statusBadge.className = 'badge bg-danger';
+              
+              // Remove accept/decline buttons
+              const actionButtons = bookingCard.querySelector('.mt-2');
+              if (actionButtons) {
+                actionButtons.remove();
+              }
+            }
+            
+            // Show success message
+            showError('Booking declined successfully!');
+          } else {
+            showError(data.message || 'Failed to decline booking');
+          }
+        } catch (error) {
+          console.error('Error declining booking:', error);
+          showError('Failed to decline booking. Please try again.');
+        }
+      }
+
+      // Load bookings
+      async function loadBookings(filter = 'all') {
+        try {
+          loading.classList.remove('d-none');
+          bookingsList.innerHTML = '';
+          noBookings.classList.add('d-none');
+          errorMessage.style.display = 'none';
+
+          const response = await fetch('/booking/driver');
+          if (!response.ok) throw new Error('Failed to load bookings');
+
+          const data = await response.json();
+          loading.classList.add('d-none');
+          
+          if (!data.data?.bookings || data.data.bookings.length === 0) {
+            noBookings.classList.remove('d-none');
+            return;
+          }
+
+          let filteredBookings = data.data.bookings;
+          if (filter !== 'all') {
+            filteredBookings = data.data.bookings.filter(b => b.status === filter);
+          }
+
+          if (filteredBookings.length === 0) {
+            noBookings.classList.remove('d-none');
+            return;
+          }
+
+          filteredBookings.forEach(booking => {
+            const bookingCard = createBookingCard(booking);
+            bookingsList.appendChild(bookingCard);
+          });
+
+          // Update map with the first booking
+          if (filteredBookings.length > 0) {
+            updateMap(filteredBookings[0]);
+          }
+        } catch (error) {
+          console.error('Error loading bookings:', error);
+          loading.classList.add('d-none');
+          showError('Failed to load bookings. Please try again.');
+        }
+      }
+
+      function createBookingCard(booking) {
+        const div = document.createElement('div');
+        div.className = 'booking-card mb-3 p-3 border rounded';
+        
+        // Format date and time
+        const bookingDate = new Date(booking.createdAt).toLocaleDateString();
+        const bookingTime = new Date(booking.createdAt).toLocaleTimeString();
+        
+        // Get status class
+        const statusClass = {
+          'pending': 'warning',
+          'accepted': 'info',
+          'inProgress': 'primary',
+          'completed': 'success',
+          'cancelled': 'danger',
+          'declined': 'secondary'
+        }[booking.status] || 'secondary';
+
+        // Check if it's an anonymous request
+        const isAnonymous = booking.type === 'anonymous' || booking.isAnonymous;
+        
+        div.innerHTML = `
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <h6 class="mb-1">
+                ${isAnonymous ? 
+                  '<span class="anonymous-badge"><i class="fas fa-user-secret me-1"></i>Emergency Request</span>' : 
+                  'Booking #' + booking._id.toString().substring(0, 6)}
+              </h6>
+              ${!isAnonymous ? `
+                <p class="mb-1"><strong>Patient:</strong> ${booking.patientName}</p>
+                <p class="mb-1"><strong>Contact:</strong> ${booking.patientContact}</p>
+                <p class="mb-1"><strong>Condition:</strong> ${booking.medicalCondition}</p>
+              ` : ''}
+              <p class="mb-1">
+                <strong>Location:</strong> 
+                ${isAnonymous ? 
+                  '<span class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Emergency Location</span>' : 
+                  booking.pickupLocation.address}
+              </p>
+              <p class="mb-1"><strong>Status:</strong> 
+                <span class="badge bg-${statusClass}">${booking.status}</span>
+              </p>
+            </div>
+            <div class="text-end">
+              <small class="text-muted d-block">${bookingDate}</small>
+              <small class="text-muted d-block">${bookingTime}</small>
+              ${booking.status === 'pending' ? `
+                <div class="mt-2">
+                  <button onclick="acceptBooking('${booking._id}')" class="btn btn-sm btn-success me-2">
+                    <i class="fas fa-check me-1"></i>Accept
+                  </button>
+                  <button onclick="declineBooking('${booking._id}')" class="btn btn-sm btn-danger">
+                    <i class="fas fa-times me-1"></i>Decline
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        
+        return div;
+      }
+
+      function updateMap(booking) {
+        if (!booking || !booking.pickupLocation || !booking.pickupLocation.coordinates) return;
+
+        if (!map) {
+          map = L.map('driverMap').setView([booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]], 13);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+          }).addTo(map);
+        } else {
+          map.setView([booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]], 13);
+        }
+
+        // Clear existing markers
+        map.eachLayer((layer) => {
+          if (layer instanceof L.Marker) {
+            map.removeLayer(layer);
+          }
+        });
+
+        // Add pickup marker
+        L.marker([booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]])
+          .addTo(map)
+          .bindPopup('Pickup Location')
+          .openPopup();
+
+        // Add dropoff marker if exists
+        if (booking.dropLocation && booking.dropLocation.coordinates) {
+          L.marker([booking.dropLocation.coordinates[1], booking.dropLocation.coordinates[0]])
+            .addTo(map)
+            .bindPopup('Dropoff Location');
+        }
+
+        // Add driver's current location
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(function(position) {
+            const driverLat = position.coords.latitude;
+            const driverLng = position.coords.longitude;
+            L.marker([driverLat, driverLng], {
+              icon: L.icon({
+                iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png'
+              })
+            })
+            .addTo(map)
+            .bindPopup('Your Location');
+          });
+        }
+      }
+
+      // Event listeners
+      filterStatus.addEventListener('change', function() {
+        currentFilter = this.value;
+        loadBookings(currentFilter);
+      });
+
+      refreshBtn.addEventListener('click', function() {
+        loadBookings(currentFilter);
+      });
+
+      // Make functions globally available
+      window.acceptBooking = acceptBooking;
+      window.declineBooking = declineBooking;
+
+      // Initial load
+      loadDriverInfo();
+      loadBookings('all');
+    });
+  </script>
+</body>
+</html> 

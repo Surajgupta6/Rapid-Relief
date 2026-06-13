@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="pageTitle">Rapid Relief | Emergency Medical Services</title>
+  <meta name="description" data-i18n="metaDescription" content="Book ambulance services instantly with real-time tracking">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
+    <div class="container">
+      <a class="navbar-brand" href="/">
+        <i class="fas fa-ambulance me-2"></i>
+        <strong data-i18n="brandName">Rapid Relief</strong>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" href="/" data-i18n="home">Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="#services" data-i18n="services">Services</a></li>
+          <li class="nav-item"><a class="nav-link" href="#how-it-works" data-i18n="howItWorks">How It Works</a></li>
+          <li class="nav-item"><a class="nav-link" href="#contact" data-i18n="contact">Contact</a></li>
+          <li class="nav-item">
+            <button class="btn btn-outline-light btn-sm me-2 language-toggle" onclick="toggleLanguage()">
+              <i class="fas fa-language me-1"></i> हिंदी में बदलें
+            </button>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle btn btn-outline-light ms-2" href="#" id="portalDropdown" role="button" data-bs-toggle="dropdown">
+              <i class="fas fa-user-circle me-1"></i> Portals
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="/login"><i class="fas fa-user me-2"></i> User Login</a></li>
+              <li><a class="dropdown-item" href="/driver/login"><i class="fas fa-ambulance me-2"></i> Driver Login</a></li>
+              <li><a class="dropdown-item" href="/hospital/login"><i class="fas fa-hospital me-2"></i> Hospital Login</a></li>
+            </ul>
+          </li>
+          <li class="nav-item"><a class="nav-link btn btn-light text-danger ms-2" href="/register" data-i18n="signUp">Sign Up</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero-section text-white text-center">
+    <div class="container">
+      <div class="row align-items-center">
+        <div class="col-lg-6 text-lg-start">
+          <h1 class="display-4 fw-bold mb-4" data-i18n="heroTitle">Emergency Medical Services at Your Fingertips</h1>
+          <p class="lead mb-4" data-i18n="heroSubtitle">Book an ambulance in just a few clicks. Our real-time tracking ensures you know exactly when help will arrive.</p>
+          <div class="d-flex flex-column flex-sm-row gap-3 justify-content-lg-start justify-content-center">
+            <a href="/book-now" class="btn btn-danger btn-lg px-4" data-i18n="bookNow">Book Ambulance Now</a>
+            <div class="dropdown">
+              <button class="btn btn-outline-light btn-lg px-4 dropdown-toggle" type="button" id="registerDropdown" data-bs-toggle="dropdown">
+                Register As
+              </button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/register"><i class="fas fa-user me-2"></i> Register as User</a></li>
+                <li><a class="dropdown-item" href="/register-driver"><i class="fas fa-ambulance me-2"></i> Register as Driver</a></li>
+                <li><a class="dropdown-item" href="/hospital/register"><i class="fas fa-hospital me-2"></i> Register as Hospital</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6 d-none d-lg-block">
+          <img src="/images/ambulance.jpg" alt="Ambulance Service" class="img-fluid mt-5">
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Services Section -->
+  <section id="services" class="py-5">
+    <div class="container">
+      <div class="text-center mb-5">
+        <h2 class="display-5 fw-bold text-danger" data-i18n="servicesTitle">Our Services</h2>
+        <p class="lead" data-i18n="servicesSubtitle">We provide comprehensive emergency medical transportation services</p>
+      </div>
+      <div class="row g-4">
+        <div class="col-md-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center p-4">
+              <div class="icon-box mb-4">
+                <i class="fas fa-heartbeat text-danger fa-3x"></i>
+              </div>
+              <h3 class="card-title h5 fw-bold" data-i18n="service1Title">Emergency Response</h3>
+              <p class="card-text" data-i18n="service1Text">Quick response times for medical emergencies with fully equipped ambulances.</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center p-4">
+              <div class="icon-box mb-4">
+                <i class="fas fa-hospital-user text-danger fa-3x"></i>
+              </div>
+              <h3 class="card-title h5 fw-bold" data-i18n="service2Title">Patient Transfer</h3>
+              <p class="card-text" data-i18n="service2Text">Safe and comfortable transportation between healthcare facilities.</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center p-4">
+              <div class="icon-box mb-4">
+                <i class="fas fa-map-marked-alt text-danger fa-3x"></i>
+              </div>
+              <h3 class="card-title h5 fw-bold" data-i18n="service3Title">Real-time Tracking</h3>
+              <p class="card-text" data-i18n="service3Text">Monitor the ambulance location in real-time with our GPS tracking system.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works Section -->
+  <section id="how-it-works" class="py-5 bg-light">
+    <div class="container">
+      <div class="text-center mb-5">
+        <h2 class="display-5 fw-bold text-danger" data-i18n="howItWorksTitle">How It Works</h2>
+        <p class="lead" data-i18n="howItWorksSubtitle">Simple steps to book an ambulance</p>
+      </div>
+      <div class="row">
+        <div class="col-md-3">
+          <div class="text-center mb-4">
+            <div class="step-circle mx-auto mb-3">1</div>
+            <h4 data-i18n="step1Title">Register</h4>
+            <p data-i18n="step1Text">Create an account to get started</p>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center mb-4">
+            <div class="step-circle mx-auto mb-3">2</div>
+            <h4 data-i18n="step2Title">Book Ambulance</h4>
+            <p data-i18n="step2Text">Enter location and patient details</p>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center mb-4">
+            <div class="step-circle mx-auto mb-3">3</div>
+            <h4 data-i18n="step3Title">Track Status</h4>
+            <p data-i18n="step3Text">Monitor ambulance location in real-time</p>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center mb-4">
+            <div class="step-circle mx-auto mb-3">4</div>
+            <h4 data-i18n="step4Title">Safe Journey</h4>
+            <p data-i18n="step4Text">Reach your destination safely</p>
+          </div>
+        </div>
+      </div>
+      <div class="text-center mt-4">
+        <a href="/register" class="btn btn-danger btn-lg" data-i18n="getStarted">Get Started Now</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact Section -->
+  <section id="contact" class="py-5">
+    <div class="container">
+      <div class="row">
+        <div class="col-lg-6">
+          <h2 class="display-5 fw-bold text-danger mb-4" data-i18n="contactTitle">Contact Us</h2>
+          <p class="lead mb-4" data-i18n="contactSubtitle">Have questions or need assistance? We're here to help!</p>
+          <ul class="list-unstyled contact-info">
+            <li class="mb-3"><i class="fas fa-phone text-danger me-2"></i> <span data-i18n="emergency">Emergency</span>: <strong>1-800-RAPIDRELIEF</strong></li>
+            <li class="mb-3"><i class="fas fa-envelope text-danger me-2"></i> <span data-i18n="email">Email</span>: support@rapidrelief.com</li>
+            <li class="mb-3"><i class="fas fa-map-marker-alt text-danger me-2"></i> <span data-i18n="address">Address</span>: 123 Healthcare Avenue, Medical City</li>
+          </ul>
+        </div>
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+              <h3 class="h4 mb-4" data-i18n="sendMessage">Send a Message</h3>
+              <form>
+                <div class="mb-3">
+                  <input type="text" class="form-control" data-i18n="yourName" placeholder="Your Name" required>
+                </div>
+                <div class="mb-3">
+                  <input type="email" class="form-control" data-i18n="yourEmail" placeholder="Your Email" required>
+                </div>
+                <div class="mb-3">
+                  <textarea class="form-control" rows="4" data-i18n="yourMessage" placeholder="Your Message" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-danger" data-i18n="send">Send Message</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-dark text-white py-4">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-6">
+          <h3 class="h5 mb-3"><i class="fas fa-ambulance me-2"></i> <span data-i18n="brandName">Rapid Relief</span></h3>
+          <p data-i18n="footerTagline">Providing fast and reliable emergency medical services.</p>
+        </div>
+        <div class="col-md-3">
+          <h5 class="mb-3" data-i18n="quickLinks">Quick Links</h5>
+          <ul class="list-unstyled">
+            <li><a href="/" class="text-white-50 text-decoration-none" data-i18n="home">Home</a></li>
+            <li><a href="/about" class="text-white-50 text-decoration-none" data-i18n="aboutUs">About Us</a></li>
+            <li><a href="/services" class="text-white-50 text-decoration-none" data-i18n="services">Services</a></li>
+            <li><a href="/contact" class="text-white-50 text-decoration-none" data-i18n="contact">Contact</a></li>
+          </ul>
+        </div>
+        <div class="col-md-3">
+          <h5 class="mb-3" data-i18n="connectWithUs">Connect with Us</h5>
+          <div class="social-icons">
+            <a href="#" class="text-white me-2"><i class="fab fa-facebook-f"></i></a>
+            <a href="#" class="text-white me-2"><i class="fab fa-twitter"></i></a>
+            <a href="#" class="text-white me-2"><i class="fab fa-instagram"></i></a>
+            <a href="#" class="text-white"><i class="fab fa-linkedin-in"></i></a>
+          </div>
+        </div>
+      </div>
+      <hr class="my-4">
+      <div class="text-center">
+        <p class="mb-0" data-i18n="copyright">&copy; 2023 Rapid Relief. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <button id="chatbot-btn" title="Chat with us!">
+    <i class="fas fa-comment"></i>
+  </button>
+  <div id="chatbot-window">
+    <div id="chatbot-header">Rapid Relief Bot</div>
+    <div id="chatbot-messages"></div>
+    <div id="chatbot-input-area">
+      <input id="chatbot-input" type="text" placeholder="Type your message..." disabled>
+      <button id="chatbot-send" disabled>Send</button>
+    </div>
+  </div>
+  <style>
+    #chatbot-btn {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: #dc3545;
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      font-size: 2rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      z-index: 99999;
+      cursor: pointer;
+    }
+    #chatbot-window {
+      display: none;
+      position: fixed;
+      bottom: 100px;
+      right: 30px;
+      width: 320px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.2);
+      z-index: 10000;
+      overflow: hidden;
+      flex-direction: column;
+    }
+    #chatbot-header {
+      background: #dc3545;
+      color: #fff;
+      padding: 12px;
+      font-weight: bold;
+      text-align: center;
+    }
+    #chatbot-messages {
+      padding: 16px;
+      height: 180px;
+      overflow-y: auto;
+      font-size: 1rem;
+    }
+    #chatbot-input-area {
+      display: flex;
+      border-top: 1px solid #eee;
+    }
+    #chatbot-input {
+      flex: 1;
+      border: none;
+      padding: 10px;
+      font-size: 1rem;
+    }
+    #chatbot-send {
+      background: #dc3545;
+      color: #fff;
+      border: none;
+      padding: 0 16px;
+      cursor: pointer;
+    }
+  </style>
+  <script>
+    const chatbotBtn = document.getElementById('chatbot-btn');
+    const chatbotWindow = document.getElementById('chatbot-window');
+    const chatbotMessages = document.getElementById('chatbot-messages');
+    const chatbotInput = document.getElementById('chatbot-input');
+    const chatbotSend = document.getElementById('chatbot-send');
+
+    chatbotBtn.onclick = () => {
+      chatbotWindow.style.display = chatbotWindow.style.display === 'flex' ? 'none' : 'flex';
+      chatbotWindow.style.flexDirection = 'column';
+      if (chatbotMessages.innerHTML === '') {
+        botMessage(`Hello! 👋<br>
+Welcome to Rapid Relief.<br><br>
+<b>How to get started:</b><br>
+1. <b>Register an account</b> by clicking the <b>Sign Up</b> button at the top right.<br>
+2. After registering, <b>log in</b> to your account.<br>
+3. Go to your <b>dashboard</b> and fill out the booking form with patient and location details.<br>
+4. Click <b>Book Ambulance Now</b> to request an ambulance.<br>
+5. You can <b>track your booking status</b> and ambulance location in real-time from your dashboard.<br><br>
+If you need help at any step, just type your question below!`);
+      }
+    };
+
+    function botMessage(msg) {
+      chatbotMessages.innerHTML += `<div style='margin-bottom:10px;'><b>Bot:</b> ${msg}</div>`;
+      chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+    }
+
+    function userMessage(msg) {
+      chatbotMessages.innerHTML += `<div style='text-align:right;margin-bottom:10px;'><b>You:</b> ${msg}</div>`;
+      chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+    }
+
+    chatbotInput.onkeydown = function(e) {
+      if (e.key === 'Enter') chatbotSend.click();
+    };
+
+    chatbotSend.onclick = function() {
+      const msg = chatbotInput.value.trim();
+      if (!msg) return;
+      userMessage(msg);
+      chatbotInput.value = '';
+      setTimeout(() => {
+        // More detailed scripted responses
+        if (/register|sign ?up/i.test(msg)) {
+          botMessage(`To register:<br>
+1. Click the <b>Sign Up</b> button at the top right of the page.<br>
+2. Choose your role (User, Driver, or Hospital) and fill in the required details.<br>
+3. Submit the form. You will receive a confirmation message.<br>
+4. After registering, use your credentials to log in.<br><br>
+<b>Tip:</b> If you have trouble registering, make sure all required fields are filled and your email is valid.`);
+        } else if (/book|ambulance|booking/i.test(msg)) {
+          botMessage(`To book an ambulance:<br>
+1. Log in to your account.<br>
+2. Go to your <b>dashboard</b>.<br>
+3. Fill out the booking form with the patient's name, contact, medical condition, and pickup location.<br>
+4. Click <b>Book Ambulance Now</b>.<br>
+5. You will see your booking in the <b>Recent Bookings</b> section and can track its status.<br><br>
+<b>Note:</b> You can also view your full booking history from the <b>My Bookings</b> page.`);
+        } else if (/track|status|where|location/i.test(msg)) {
+          botMessage(`To track your ambulance:<br>
+1. After making a booking, go to your <b>dashboard</b>.<br>
+2. Your active booking will show real-time status and ambulance location on the map.<br>
+3. You will also receive updates as the status changes (e.g., accepted, in progress, completed).`);
+        } else if (/hello|hi|hey/i.test(msg)) {
+          botMessage('Hello! How can I assist you today? You can ask about registration, booking, or tracking your ambulance.');
+        } else {
+          botMessage('I am here to help you register, make bookings, and track your ambulance. Try asking about registration, booking, or tracking!');
+        }
+      }, 600);
+    };
+
+    // Enable input for interactive bot
+    chatbotInput.disabled = false;
+    chatbotSend.disabled = false;
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/translations.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html> 

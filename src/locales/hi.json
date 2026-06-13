@@ -1,0 +1,52 @@
+{
+  "nav": {
+    "home": "होम",
+    "login": "लॉगिन",
+    "register": "रजिस्टर",
+    "brand": "रैपिड रिलीफ"
+  },
+  "login": {
+    "title": "खाता लॉगिन",
+    "emailLabel": "ईमेल पता",
+    "passwordLabel": "पासवर्ड",
+    "submitButton": "लॉगिन",
+    "noAccount": "खाता नहीं है?",
+    "registerHere": "यहां रजिस्टर करें",
+    "error": "लॉगिन विफल। कृपया अपनी जानकारी जांचें और पुनः प्रयास करें।"
+  },
+  "register": {
+    "pageTitle": "रजिस्टर | रैपिड रिलीफ",
+    "title": "खाता रजिस्टर",
+    "nameLabel": "नाम",
+    "emailLabel": "ईमेल पता",
+    "phoneLabel": "फोन नंबर",
+    "addressLabel": "पता",
+    "passwordLabel": "पासवर्ड",
+    "confirmPasswordLabel": "पासवर्ड की पुष्टि करें",
+    "passwordHelp": "पासवर्ड कम से कम 8 अक्षर लंबा होना चाहिए",
+    "submitButton": "रजिस्टर",
+    "haveAccount": "पहले से खाता है?",
+    "loginHere": "यहां लॉगिन करें",
+    "errors": {
+      "general": "पंजीकरण विफल। कृपया अपनी जानकारी जांचें और पुनः प्रयास करें।",
+      "passwordMatch": "पासवर्ड मेल नहीं खाते!",
+      "tryAgain": "पंजीकरण विफल। कृपया पुनः प्रयास करें।",
+      "tryLater": "पंजीकरण विफल। कृपया बाद में पुनः प्रयास करें।"
+    }
+  },
+  "Hospital Login": "अस्पताल लॉगिन",
+  "Email": "ईमेल",
+  "Password": "पासवर्ड",
+  "Login": "लॉगिन",
+  "Don't have an account?": "खाता नहीं है?",
+  "Register here": "यहां रजिस्टर करें",
+  "Hospital Information": "अस्पताल की जानकारी",
+  "Bed Availability": "बेड उपलब्धता",
+  "Available Beds": "उपलब्ध बेड",
+  "Total Capacity": "कुल क्षमता",
+  "Ambulance Status": "एम्बुलेंस की स्थिति",
+  "Available": "उपलब्ध",
+  "On Duty": "ड्यूटी पर",
+  "Total": "कुल",
+  "Ambulance Locations": "एम्बुलेंस स्थान"
+} 

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="<%= getLocale() %>">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Bookings | <%= __('nav.brand') %></title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    .booking-card {
+      transition: all 0.3s ease;
+      border-left: 5px solid #dc3545;
+    }
+    .booking-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+    .status-badge {
+      font-size: 0.8rem;
+      padding: 0.3rem 0.6rem;
+    }
+    .pending { background-color: #ffc107; color: #000; }
+    .accepted { background-color: #17a2b8; color: #fff; }
+    .inProgress { background-color: #007bff; color: #fff; }
+    .completed { background-color: #28a745; color: #fff; }
+    .cancelled { background-color: #6c757d; color: #fff; }
+    #chatbot-btn {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: #dc3545;
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      font-size: 2rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      z-index: 9999;
+      cursor: pointer;
+    }
+    #chatbot-window {
+      display: none;
+      position: fixed;
+      bottom: 100px;
+      right: 30px;
+      width: 320px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.2);
+      z-index: 10000;
+      overflow: hidden;
+      flex-direction: column;
+    }
+    #chatbot-header {
+      background: #dc3545;
+      color: #fff;
+      padding: 12px;
+      font-weight: bold;
+      text-align: center;
+    }
+    #chatbot-messages {
+      padding: 16px;
+      height: 180px;
+      overflow-y: auto;
+      font-size: 1rem;
+    }
+    #chatbot-input-area {
+      display: flex;
+      border-top: 1px solid #eee;
+    }
+    #chatbot-input {
+      flex: 1;
+      border: none;
+      padding: 10px;
+      font-size: 1rem;
+    }
+    #chatbot-send {
+      background: #dc3545;
+      color: #fff;
+      border: none;
+      padding: 0 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
+    <div class="container">
+      <a class="navbar-brand" href="/">
+        <i class="fas fa-ambulance me-2"></i>
+        <strong><%= __('nav.brand') %></strong>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item"><a class="nav-link" href="/user/dashboard">Dashboard</a></li>
+          <li class="nav-item"><a class="nav-link active" href="/user/bookings">My Bookings</a></li>
+          <li class="nav-item"><a class="nav-link" href="/user/profile">My Profile</a></li>
+        </ul>
+        <div class="d-flex">
+          <span class="navbar-text me-3">
+            <i class="fas fa-user-circle me-1"></i> Welcome, <span id="userName"><%= user.name %></span>
+          </span>
+          <a href="/auth/logout" class="btn btn-outline-light btn-sm">
+            <i class="fas fa-sign-out-alt me-1"></i> Logout
+          </a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container py-4">
+    <div class="row">
+      <div class="col-12">
+        <div class="card shadow-sm mb-4">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h3 class="card-title h5 mb-0">My Booking History</h3>
+            <div>
+              <select class="form-select form-select-sm" id="filterStatus">
+                <option value="all" selected>All Bookings</option>
+                <option value="pending">Pending</option>
+                <option value="accepted">Accepted</option>
+                <option value="inProgress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div id="bookingsList" class="list-group list-group-flush">
+              <!-- Bookings will be loaded here dynamically -->
+            </div>
+          </div>
+          <div class="card-footer bg-white text-center">
+            <div class="d-flex justify-content-between align-items-center">
+              <button class="btn btn-sm btn-outline-secondary" id="prevPage" disabled>Previous</button>
+              <span id="pageInfo">Page 1 of 1</span>
+              <button class="btn btn-sm btn-outline-secondary" id="nextPage" disabled>Next</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Booking Details Modal -->
+  <div class="modal fade" id="bookingDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Booking Details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">Booking Information</div>
+                <div class="card-body" id="modalBookingInfo">
+                  <!-- Booking details will be loaded here -->
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">Trip Timeline</div>
+                <div class="card-body p-0">
+                  <ul class="list-group list-group-flush" id="modalTimeline">
+                    <!-- Timeline will be loaded here -->
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="downloadReceipt" disabled>Download Receipt</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <button id="chatbot-btn" title="Chat with us!">
+    <i class="fas fa-comment"></i>
+  </button>
+  <div id="chatbot-window">
+    <div id="chatbot-header">Rapid Relief Bot</div>
+    <div id="chatbot-messages"></div>
+    <div id="chatbot-input-area">
+      <input id="chatbot-input" type="text" placeholder="Type your message..." disabled>
+      <button id="chatbot-send" disabled>Send</button>
+    </div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let map = null;
+    let driverMarker = null;
+    let userMarker = null;
+    let locationUpdateInterval = null;
+    let currentBooking = null;
+    let socket = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize socket connection
+      socket = io();
+      
+      // Load bookings
+      loadBookings();
+
+      // Add event listener for status filter
+      document.getElementById('filterStatus').addEventListener('change', function() {
+        loadBookings(this.value);
+      });
+
+      // Socket event listeners
+      socket.on('bookingStatusUpdated', (data) => {
+        if (currentBooking && data.bookingId === currentBooking._id) {
+          updateBookingStatus(data.status);
+          if (data.isTripInProgress) {
+            startLocationUpdates();
+          } else {
+            stopLocationUpdates();
+          }
+        }
+      });
+
+      socket.on('driverLocationUpdate', (data) => {
+        if (currentBooking && data.bookingId === currentBooking._id && data.isTripInProgress) {
+          updateDriverLocation(data.coordinates);
+        }
+      });
+    });
+
+    async function loadBookings(statusFilter = 'all') {
+      try {
+        const response = await fetch('/booking/user', {
+          headers: {
+            'Accept': 'application/json'
+          },
+          credentials: 'same-origin'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          const bookingsList = document.getElementById('bookingsList');
+          bookingsList.innerHTML = '';
+          
+          let filteredBookings = data.data.bookings;
+          if (statusFilter !== 'all') {
+            filteredBookings = data.data.bookings.filter(b => b.status === statusFilter);
+          }
+
+          if (filteredBookings.length === 0) {
+            bookingsList.innerHTML = `
+              <div class="text-center py-5">
+                <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                <h5>No bookings found</h5>
+                <p class="text-muted">No bookings match your current filter.</p>
+              </div>
+            `;
+            return;
+          }
+
+          filteredBookings.forEach(booking => {
+            const bookingCard = createBookingCard(booking);
+            bookingsList.appendChild(bookingCard);
+          });
+
+          // If there's an active booking, show its map
+          const activeBooking = filteredBookings.find(b => b.status === 'inProgress');
+          if (activeBooking) {
+            currentBooking = activeBooking;
+            initializeMap(activeBooking);
+            startLocationUpdates();
+          }
+        } else {
+          throw new Error(data.message || 'Failed to load bookings');
+        }
+      } catch (error) {
+        console.error('Error loading bookings:', error);
+        const bookingsList = document.getElementById('bookingsList');
+        bookingsList.innerHTML = `
+          <div class="text-center py-5 text-danger">
+            <i class="fas fa-exclamation-circle fa-3x mb-3"></i>
+            <h5>Error loading bookings</h5>
+            <p class="text-muted">${error.message || 'Please try again later.'}</p>
+          </div>
+        `;
+      }
+    }
+
+    function createBookingCard(booking) {
+      const div = document.createElement('div');
+      div.className = 'booking-card mb-3 p-3 border rounded';
+      div.setAttribute('data-booking-id', booking._id);
+      div.setAttribute('data-pickup-coords', booking.pickupLocation.coordinates.join(','));
+      if (booking.dropLocation) {
+        div.setAttribute('data-drop-coords', booking.dropLocation.coordinates.join(','));
+      }
+      
+      // Format date and time
+      const bookingDate = new Date(booking.createdAt).toLocaleDateString();
+      const bookingTime = new Date(booking.createdAt).toLocaleTimeString();
+      
+      // Get status class
+      const statusClass = {
+        'pending': 'warning',
+        'accepted': 'info',
+        'inProgress': 'primary',
+        'completed': 'success',
+        'cancelled': 'danger',
+        'declined': 'secondary'
+      }[booking.status] || 'secondary';
+
+      div.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="mb-1">Booking #${booking._id.toString().substring(0, 6)}</h6>
+            <p class="mb-1"><strong>Patient:</strong> ${booking.patientName}</p>
+            <p class="mb-1"><strong>Contact:</strong> ${booking.patientContact}</p>
+            <p class="mb-1"><strong>Condition:</strong> ${booking.medicalCondition}</p>
+            <p class="mb-1"><strong>Location:</strong> ${booking.pickupLocation.address}</p>
+            <p class="mb-1"><strong>Status:</strong> 
+              <span class="badge bg-${statusClass}">${booking.status}</span>
+            </p>
+            ${booking.driver ? `
+              <p class="mb-1"><strong>Driver:</strong> ${booking.driver.name}</p>
+              <p class="mb-1"><strong>Vehicle:</strong> ${booking.driver.vehicleNumber}</p>
+            ` : ''}
+          </div>
+          <div class="text-end">
+            <small class="text-muted d-block">${bookingDate}</small>
+            <small class="text-muted d-block">${bookingTime}</small>
+            ${booking.status === 'inProgress' ? `
+              <button onclick="showMap('${booking._id}')" class="btn btn-sm btn-primary mt-2">
+                <i class="fas fa-map-marker-alt me-1"></i>Show Map
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+      
+      return div;
+    }
+
+    function showMap(bookingId) {
+      const bookingElement = document.querySelector(`[data-booking-id="${bookingId}"]`);
+      if (bookingElement) {
+        // Find the booking data from the bookings list
+        const bookingData = Array.from(document.querySelectorAll('.booking-card')).find(card => 
+          card.getAttribute('data-booking-id') === bookingId
+        );
+        
+        if (bookingData) {
+          currentBooking = {
+            _id: bookingId,
+            pickupLocation: {
+              coordinates: bookingData.querySelector('[data-pickup-coords]').dataset.pickupCoords.split(',').map(Number)
+            },
+            dropLocation: bookingData.querySelector('[data-drop-coords]') ? {
+              coordinates: bookingData.querySelector('[data-drop-coords]').dataset.dropCoords.split(',').map(Number)
+            } : null
+          };
+          
+          initializeMap(currentBooking);
+          startLocationUpdates();
+        }
+      }
+    }
+
+    function initializeMap(booking) {
+      if (!booking || !booking.pickupLocation || !booking.pickupLocation.coordinates) return;
+
+      // Initialize map if not already done
+      if (!map) {
+        map = L.map('bookingMap').setView([booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(map);
+      } else {
+        map.setView([booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]], 13);
+      }
+
+      // Clear existing markers
+      map.eachLayer((layer) => {
+        if (layer instanceof L.Marker) {
+          map.removeLayer(layer);
+        }
+      });
+
+      // Add pickup marker
+      L.marker([booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]])
+        .addTo(map)
+        .bindPopup('Pickup Location')
+        .openPopup();
+
+      // Add dropoff marker if exists
+      if (booking.dropLocation && booking.dropLocation.coordinates) {
+        L.marker([booking.dropLocation.coordinates[1], booking.dropLocation.coordinates[0]])
+          .addTo(map)
+          .bindPopup('Dropoff Location');
+      }
+
+      // Add user's current location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+          const userLat = position.coords.latitude;
+          const userLng = position.coords.longitude;
+          
+          userMarker = L.marker([userLat, userLng], {
+            icon: L.icon({
+              iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+              iconSize: [25, 41],
+              iconAnchor: [12, 41],
+              popupAnchor: [1, -34],
+              shadowSize: [41, 41]
+            })
+          })
+          .addTo(map)
+          .bindPopup('Your Location');
+
+          // Send user location to server
+          if (socket) {
+            socket.emit('userLocationUpdate', {
+              bookingId: booking._id,
+              coordinates: [userLng, userLat]
+            });
+          }
+        });
+      }
+
+      // Fit map to show all markers
+      const bounds = [
+        [booking.pickupLocation.coordinates[1], booking.pickupLocation.coordinates[0]]
+      ];
+      
+      if (booking.dropLocation && booking.dropLocation.coordinates) {
+        bounds.push([booking.dropLocation.coordinates[1], booking.dropLocation.coordinates[0]]);
+      }
+      
+      map.fitBounds(bounds);
+    }
+
+    function updateDriverLocation(coordinates) {
+      if (!driverMarker) {
+        driverMarker = L.marker([coordinates[1], coordinates[0]], {
+          icon: L.icon({
+            iconUrl: 'https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/images/marker-icon.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          })
+        })
+        .addTo(map)
+        .bindPopup('Driver Location');
+      } else {
+        driverMarker.setLatLng([coordinates[1], coordinates[0]]);
+      }
+    }
+
+    function startLocationUpdates() {
+      if (locationUpdateInterval) {
+        clearInterval(locationUpdateInterval);
+      }
+      
+      // Update user location every 10 seconds
+      locationUpdateInterval = setInterval(() => {
+        if (navigator.geolocation && currentBooking) {
+          navigator.geolocation.getCurrentPosition(function(position) {
+            const userLat = position.coords.latitude;
+            const userLng = position.coords.longitude;
+            
+            if (userMarker) {
+              userMarker.setLatLng([userLat, userLng]);
+            }
+
+            // Send user location to server
+            if (socket) {
+              socket.emit('userLocationUpdate', {
+                bookingId: currentBooking._id,
+                coordinates: [userLng, userLat]
+              });
+            }
+          });
+        }
+      }, 10000);
+    }
+
+    function stopLocationUpdates() {
+      if (locationUpdateInterval) {
+        clearInterval(locationUpdateInterval);
+        locationUpdateInterval = null;
+      }
+    }
+
+    function updateBookingStatus(status) {
+      const statusBadge = document.querySelector('.booking-status');
+      if (statusBadge) {
+        statusBadge.textContent = status;
+        statusBadge.className = `booking-status ${status.toLowerCase()}`;
+      }
+    }
+
+    const chatbotBtn = document.getElementById('chatbot-btn');
+    const chatbotWindow = document.getElementById('chatbot-window');
+    const chatbotMessages = document.getElementById('chatbot-messages');
+    const chatbotInput = document.getElementById('chatbot-input');
+    const chatbotSend = document.getElementById('chatbot-send');
+
+    chatbotBtn.onclick = () => {
+      chatbotWindow.style.display = chatbotWindow.style.display === 'flex' ? 'none' : 'flex';
+      chatbotWindow.style.flexDirection = 'column';
+      if (chatbotMessages.innerHTML === '') {
+        botMessage("Hello! 👋\nTo use Rapid Relief, please register an account.\nOnce registered, you can book an ambulance easily from your dashboard!\nIf you need help, just ask.");
+      }
+    };
+
+    function botMessage(msg) {
+      chatbotMessages.innerHTML += `<div style='margin-bottom:10px;'><b>Bot:</b> ${msg.replace(/n/g, '<br>')}</div>`;
+      chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+    }
+
+    function userMessage(msg) {
+      chatbotMessages.innerHTML += `<div style='text-align:right;margin-bottom:10px;'><b>You:</b> ${msg}</div>`;
+      chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+    }
+
+    chatbotInput.onkeydown = function(e) {
+      if (e.key === 'Enter') chatbotSend.click();
+    };
+
+    chatbotSend.onclick = function() {
+      const msg = chatbotInput.value.trim();
+      if (!msg) return;
+      userMessage(msg);
+      chatbotInput.value = '';
+      setTimeout(() => {
+        // Simple scripted responses
+        if (/register|sign ?up/i.test(msg)) {
+          botMessage('To register, click the "Register" or "Sign Up" button at the top right and fill in your details.');
+        } else if (/book|ambulance/i.test(msg)) {
+          botMessage('After logging in, go to your dashboard and fill out the booking form to request an ambulance.');
+        } else if (/hello|hi|hey/i.test(msg)) {
+          botMessage('Hello! How can I assist you today?');
+        } else {
+          botMessage('I am here to help you register and make bookings. Try asking about registration or booking!');
+        }
+      }, 600);
+    };
+
+    // Disable input (for info-only bot)
+    chatbotInput.disabled = true;
+    chatbotSend.disabled = true;
+  </script>
+</body>
+</html> 
