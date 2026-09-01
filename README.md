@@ -112,10 +112,6 @@ ambulance-tracker/
 - **Frontend**: EJS, Bootstrap 5, Leaflet.js (maps)
 - **Geolocation**: HTML5 Geolocation API, OpenStreetMap
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Acknowledgements
 
 - [OpenStreetMap](https://www.openstreetmap.org/) for the map tiles
