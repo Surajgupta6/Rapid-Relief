@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const Driver = require('../models/Driver');
 
-// Register a new user
+// ─── Register a new user ──────────────────────────────────────────────────────
 exports.register = async (req, res) => {
   try {
     const { name, email, password, phone, address, role } = req.body;
@@ -13,14 +13,7 @@ exports.register = async (req, res) => {
     }
 
     // Create a new user
-    const user = await User.create({
-      name,
-      email,
-      password,
-      phone,
-      address,
-      role
-    });
+    const user = await User.create({ name, email, password, phone, address, role });
 
     // If user is a driver, create driver profile
     let driverId = null;
@@ -33,7 +26,7 @@ exports.register = async (req, res) => {
           registrationNumber,
           model,
           capacity: parseInt(capacity),
-          features: features ? features.split(',').map(f => f.trim()) : []
+          features: features ? features.split(',').map((f) => f.trim()) : []
         },
         status: 'offline'
       });
@@ -52,24 +45,24 @@ exports.register = async (req, res) => {
     res.status(201).json({
       status: 'success',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          driverId
-        }
+        user: { id: user._id, name: user.name, email: user.email, role: user.role, driverId }
       }
     });
   } catch (err) {
+    console.error('Registration error:', err);
     res.status(500).json({
       status: 'error',
-      message: err.message
+      message: 'Registration failed. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// Register a driver
+// ─── Register a driver (dedicated endpoint) ───────────────────────────────────
+// NOTE (DEF-005 / known issue): Driver registration currently creates both a
+// User document and a Driver document each with their own hashed password.
+// The login flow authenticates against User.password only.  Consolidating the
+// two into a single auth entity is tracked as Phase 2 work.
 exports.registerDriver = async (req, res) => {
   try {
     const {
@@ -85,35 +78,18 @@ exports.registerDriver = async (req, res) => {
       features
     } = req.body;
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ 
-        status: 'error',
-        message: 'A user already exists with this email' 
-      });
+      return res.status(400).json({ status: 'error', message: 'A user already exists with this email' });
     }
 
-    // Check if license number is already registered
     const existingDriver = await Driver.findOne({ licenseNumber });
     if (existingDriver) {
-      return res.status(400).json({ 
-        status: 'error',
-        message: 'A driver already exists with this license number' 
-      });
+      return res.status(400).json({ status: 'error', message: 'A driver already exists with this license number' });
     }
 
-    // Create new user with driver role
-    const user = await User.create({
-      name,
-      email,
-      password,
-      phone,
-      address,
-      role: 'driver'
-    });
+    const user = await User.create({ name, email, password, phone, address, role: 'driver' });
 
-    // Create new driver document
     const driver = await Driver.create({
       user: user._id,
       licenseNumber,
@@ -121,12 +97,11 @@ exports.registerDriver = async (req, res) => {
         registrationNumber,
         model,
         capacity: parseInt(capacity),
-        features: features ? features.split(',').map(f => f.trim()) : []
+        features: features ? features.split(',').map((f) => f.trim()) : []
       },
       status: 'offline'
     });
 
-    // Update session with driver data
     req.session.user = {
       id: user._id,
       email: user.email,
@@ -135,27 +110,15 @@ exports.registerDriver = async (req, res) => {
       driverId: driver._id
     };
 
-    console.log('Driver registered successfully:', {
-      userId: user._id,
-      driverId: driver._id,
-      email: user.email
-    });
-
     res.status(201).json({
       status: 'success',
       data: {
-        user: {
-          id: user._id,
-          email: user.email,
-          role: 'driver',
-          name: user.name,
-          driverId: driver._id
-        }
+        user: { id: user._id, email: user.email, role: 'driver', name: user.name, driverId: driver._id }
       }
     });
   } catch (error) {
     console.error('Driver registration error:', error);
-    
+
     // If user was created but driver creation failed, clean up the user
     if (error.code !== 11000 && req.session?.user?.id) {
       try {
@@ -165,42 +128,36 @@ exports.registerDriver = async (req, res) => {
       }
     }
 
-    // Send appropriate error message
     if (error.code === 11000) {
-      // Duplicate key error
       const field = Object.keys(error.keyPattern)[0];
-      res.status(400).json({
-        status: 'error',
-        message: `This ${field} is already registered`
-      });
-    } else {
-      res.status(500).json({
-        status: 'error',
-        message: 'An error occurred during registration. Please try again.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      return res.status(400).json({ status: 'error', message: `This ${field} is already registered` });
     }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'An error occurred during registration. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
-// Login user
+// ─── Login ────────────────────────────────────────────────────────────────────
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if user exists and explicitly select password field
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
+      // Return the same message for both "not found" and "wrong password" to
+      // prevent user enumeration.
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // If user is a driver, get their driver profile
     let driverId = null;
     if (user.role === 'driver') {
       const driver = await Driver.findOne({ user: user._id });
@@ -210,7 +167,6 @@ exports.login = async (req, res) => {
       driverId = driver._id;
     }
 
-    // Create session
     req.session.user = {
       id: user._id,
       name: user.name,
@@ -222,40 +178,31 @@ exports.login = async (req, res) => {
     res.status(200).json({
       status: 'success',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          driverId
-        }
+        user: { id: user._id, name: user.name, email: user.email, role: user.role, driverId }
       }
     });
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({
       status: 'error',
-      message: err.message
+      message: 'Login failed. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// Logout
+// ─── Logout ───────────────────────────────────────────────────────────────────
 exports.logout = (req, res) => {
   req.session.destroy((err) => {
     if (err) {
-      return res.status(500).json({
-        status: 'error',
-        message: 'Error logging out'
-      });
+      console.error('Session destroy error:', err);
+      return res.status(500).json({ status: 'error', message: 'Error logging out' });
     }
-    res.status(200).json({
-      status: 'success',
-      message: 'You have successfully logged out'
-    });
+    res.status(200).json({ status: 'success', message: 'You have successfully logged out' });
   });
 };
 
-// Get current user
+// ─── Get current user ─────────────────────────────────────────────────────────
 exports.getCurrentUser = async (req, res) => {
   try {
     if (!req.session.user) {
@@ -280,9 +227,11 @@ exports.getCurrentUser = async (req, res) => {
       }
     });
   } catch (err) {
+    console.error('Get current user error:', err);
     res.status(500).json({
       status: 'error',
-      message: err.message
+      message: 'Failed to retrieve user information.',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
-}; 
+};
