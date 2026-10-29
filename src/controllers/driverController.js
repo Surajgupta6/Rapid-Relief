@@ -29,6 +29,9 @@ exports.updateLocation = async (req, res) => {
     }
 
     driver.location.coordinates = coordinates;
+    // Record when location was last set so dispatch queries can filter out
+    // drivers who have never updated their position (default [0,0]).
+    driver.locationSetAt = new Date();
     await driver.save();
 
     res.status(200).json({ status: 'success', data: { location: driver.location } });
@@ -362,7 +365,7 @@ exports.getDashboard = catchAsync(async (req, res) => {
     const bookings = await Booking.find({
       $or: [
         { driver: req.session.user.driverId },
-        { isAnonymous: true, status: { $in: ['pending', 'accepted', 'inProgress'] } }
+        { type: 'anonymous', status: { $in: ['pending', 'accepted', 'inProgress'] } }
       ]
     })
       .populate('user', 'name contactNumber')
@@ -412,7 +415,7 @@ exports.getDriverBookings = catchAsync(async (req, res) => {
   const bookings = await Booking.find({
     $or: [
       { driver: req.session.user.driverId },
-      { isAnonymous: true, status: { $in: ['pending', 'accepted', 'inProgress'] } }
+      { type: 'anonymous', status: { $in: ['pending', 'accepted', 'inProgress'] } }
     ]
   })
     .populate('user', 'name contactNumber')

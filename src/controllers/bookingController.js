@@ -1,33 +1,94 @@
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
-const User = require('../models/User');
 
-// ─── Create a new booking ─────────────────────────────────────────────────────
+// ─── Haversine fare calculation ───────────────────────────────────────────────
+function calculateFare(pickupCoords, dropCoords) {
+  const R = 6371;
+  const dLat = ((dropCoords[1] - pickupCoords[1]) * Math.PI) / 180;
+  const dLon = ((dropCoords[0] - pickupCoords[0]) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((pickupCoords[1] * Math.PI) / 180) *
+      Math.cos((dropCoords[1] * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(100 + distance * 15); // ₹100 base + ₹15/km
+}
+
+// ─── Dispatch helper ──────────────────────────────────────────────────────────
+/**
+ * Finds available drivers near a pickup point.
+ *
+ * Strategy (two-pass):
+ *  1. $near search among drivers who have set their location (locationSetAt
+ *     is not null), within a 50 km radius, sorted closest-first.
+ *  2. If no geo-located drivers are found, fall back to any available driver
+ *     regardless of location (emergency fallback).
+ *
+ * This avoids returning drivers whose coordinates are still [0, 0] (the
+ * default set on registration) in proximity results.
+ */
+async function findAvailableDrivers(pickupCoords) {
+  // Pass 1 — proximity-aware
+  let drivers = await Driver.find({
+    isAvailable: true,
+    locationSetAt: { $ne: null }, // exclude [0,0] default-coord drivers
+    location: {
+      $near: {
+        $geometry: { type: 'Point', coordinates: pickupCoords },
+        $maxDistance: 50000 // 50 km
+      }
+    }
+  })
+    .populate('user', 'name phone')
+    .limit(20);
+
+  // Pass 2 — fallback (no proximity constraint)
+  if (drivers.length === 0) {
+    drivers = await Driver.find({ isAvailable: true }).populate('user', 'name phone');
+  }
+
+  return drivers;
+}
+
+// ─── Create a regular booking ─────────────────────────────────────────────────
 exports.createBooking = async (req, res) => {
   try {
-    const { patientName, patientContact, medicalCondition, pickupLocation, dropLocation } = req.body;
+    const {
+      patientName,
+      patientContact,
+      medicalCondition,
+      pickupLocation,
+      dropLocation
+    } = req.body;
 
-    if (!patientName || !patientContact || !medicalCondition || !pickupLocation) {
-      return res.status(400).json({
+    // Guard: prevent duplicate active bookings from the same user
+    const existingActive = await Booking.findOne({
+      user: req.session.user.id,
+      status: { $in: ['pending', 'accepted', 'inProgress'] }
+    });
+    if (existingActive) {
+      return res.status(409).json({
         status: 'error',
-        message: 'Please provide all required fields'
+        message: 'You already have an active booking. Cancel it before creating a new one.',
+        data: { existingBookingId: existingActive._id }
       });
     }
 
-    // Find all available drivers
-    const availableDrivers = await Driver.find({
-      isAvailable: true,
-      isOnDuty: true
-    }).populate('user', 'name phone');
+    const pickupCoords = pickupLocation.coordinates;
+    const availableDrivers = await findAvailableDrivers(pickupCoords);
 
     if (availableDrivers.length === 0) {
       return res.status(404).json({
         status: 'error',
-        message: 'No available ambulances found'
+        message: 'No ambulances are available in your area right now'
       });
     }
 
-    // Create the booking with proper GeoJSON format
+    // Calculate fare estimate up-front if drop coordinates are provided
+    const dropCoords = dropLocation?.coordinates;
+    const fare = dropCoords ? calculateFare(pickupCoords, dropCoords) : null;
+
     const booking = await Booking.create({
       user: req.session.user.id,
       type: 'regular',
@@ -36,38 +97,36 @@ exports.createBooking = async (req, res) => {
       medicalCondition,
       pickupLocation: {
         type: 'Point',
-        coordinates: pickupLocation.coordinates,
+        coordinates: pickupCoords,
         address: pickupLocation.address
       },
       dropLocation: dropLocation
         ? {
             type: 'Point',
-            coordinates: dropLocation.coordinates,
+            coordinates: dropCoords,
             address: dropLocation.address
           }
         : {
             type: 'Point',
-            coordinates: pickupLocation.coordinates,
+            coordinates: pickupCoords,
             address: 'To be determined'
           },
+      fare,
       status: 'pending'
     });
 
-    // Notify all drivers in the 'drivers' room
+    // Broadcast to all drivers connected to the 'drivers' Socket.IO room
     if (req.app.io) {
       req.app.io.to('drivers').emit('newBookingAlert', {
         booking,
-        totalDrivers: availableDrivers.length
+        nearbyDriverCount: availableDrivers.length
       });
     }
 
     res.status(201).json({
       status: 'success',
       message: 'Booking created successfully',
-      data: {
-        booking,
-        totalDrivers: availableDrivers.length
-      }
+      data: { booking, nearbyDriverCount: availableDrivers.length }
     });
   } catch (err) {
     console.error('Booking creation error:', err);
@@ -79,33 +138,11 @@ exports.createBooking = async (req, res) => {
   }
 };
 
-// ─── Haversine fare calculation ───────────────────────────────────────────────
-function calculateFare(pickupCoords, dropCoords) {
-  const R = 6371; // Earth radius in km
-  const dLat = ((dropCoords[1] - pickupCoords[1]) * Math.PI) / 180;
-  const dLon = ((dropCoords[0] - pickupCoords[0]) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((pickupCoords[1] * Math.PI) / 180) *
-      Math.cos((dropCoords[1] * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // km
-  const baseFare = 100;
-  const ratePerKm = 15;
-  return Math.round(baseFare + distance * ratePerKm);
-}
-
-// ─── Get all bookings for the current user ────────────────────────────────────
+// ─── Get current user's bookings ──────────────────────────────────────────────
 exports.getUserBookings = async (req, res) => {
   try {
-    if (!req.session.user) {
-      return res.status(401).json({ status: 'error', message: 'You are not logged in' });
-    }
-
     const bookings = await Booking.find({ user: req.session.user.id })
-      .populate('driver', 'name vehicleNumber')
+      .populate('driver', 'name vehicleNumber contactNumber')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -123,25 +160,29 @@ exports.getUserBookings = async (req, res) => {
   }
 };
 
-// ─── Get all bookings visible to the current driver ───────────────────────────
+// ─── Get bookings visible to the current driver ───────────────────────────────
+// Returns:
+//  - All bookings assigned to this driver
+//  - All pending unassigned bookings (excluding those this driver declined)
 exports.getDriverBookings = async (req, res) => {
   try {
     if (!req.session?.user || req.session.user.role !== 'driver' || !req.session.user.driverId) {
       return res.status(401).json({ status: 'error', message: 'Driver authentication required' });
     }
 
+    const driverId = req.session.user.driverId;
+
     const bookings = await Booking.find({
       $or: [
-        { driver: req.session.user.driverId },
+        { driver: driverId },
         {
           status: 'pending',
-          driver: { $exists: false }
+          driver: { $exists: false },
+          declinedBy: { $nin: [driverId] } // exclude bookings this driver already declined
         }
       ]
     })
       .populate({ path: 'user', select: 'name phone' })
-      .populate('pickupLocation')
-      .populate('dropLocation')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -160,14 +201,12 @@ exports.getDriverBookings = async (req, res) => {
 };
 
 // ─── Driver accepts a booking (atomic) ───────────────────────────────────────
-// Uses findOneAndUpdate with a status filter so that only one driver can claim
-// a pending booking even if multiple drivers call this endpoint simultaneously.
 exports.acceptBooking = async (req, res) => {
   try {
     const bookingId = req.params.bookingId;
 
     if (!req.session.user || !req.session.user.driverId) {
-      return res.status(401).json({ status: 'error', message: 'Driver not found in session' });
+      return res.status(401).json({ status: 'error', message: 'Driver session not found' });
     }
 
     const driverId = req.session.user.driverId;
@@ -177,16 +216,23 @@ exports.acceptBooking = async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'Driver not found' });
     }
 
-    // ── Atomic claim ──────────────────────────────────────────────────────────
-    // A single MongoDB findOneAndUpdate with { status: 'pending' } in the
-    // filter is atomic at the document level.  If two drivers race, exactly
-    // one will match and the other will receive null → 409 Conflict.
+    // Guard: driver must not already be handling another booking
+    if (driver.currentBooking) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'You already have an active booking. Complete or cancel it before accepting a new one.'
+      });
+    }
+
+    // Atomic claim — eliminates the race condition (DEF-001).
+    // Only one driver can match { _id: bookingId, status: 'pending' }
+    // and the update happens in a single server round-trip.
     const booking = await Booking.findOneAndUpdate(
       { _id: bookingId, status: 'pending' },
       {
         status: 'accepted',
         driver: driverId,
-        hospital: driver.hospital._id,
+        hospital: driver.hospital?._id,
         acceptedAt: new Date()
       },
       { new: true }
@@ -199,30 +245,31 @@ exports.acceptBooking = async (req, res) => {
       }
       return res.status(409).json({
         status: 'error',
-        message: 'This booking has already been accepted by another driver'
+        message: 'This booking was already accepted by another driver'
       });
     }
 
-    // Mark driver as busy
+    // Mark the driver as busy
     await Driver.findByIdAndUpdate(driverId, {
       isAvailable: false,
-      currentBooking: bookingId
+      currentBooking: booking._id
     });
 
-    // Broadcast to all clients (patient's tab will listen for their booking id)
     if (req.app.io) {
       req.app.io.emit('bookingAccepted', {
         bookingId: booking._id,
         driverId,
         driverName: driver.name,
-        hospitalId: driver.hospital._id,
-        vehicleInfo: `${driver.ambulanceDetails?.model || ''} (${driver.ambulanceDetails?.registrationNumber || ''})`
+        hospitalId: driver.hospital?._id,
+        vehicleInfo: driver.ambulanceDetails
+          ? `${driver.ambulanceDetails.registrationNumber} — ${driver.vehicleType}`
+          : ''
       });
     }
 
     res.status(200).json({
       status: 'success',
-      message: 'Booking accepted successfully',
+      message: 'Booking accepted',
       data: { booking }
     });
   } catch (error) {
@@ -235,11 +282,11 @@ exports.acceptBooking = async (req, res) => {
   }
 };
 
-// ─── Driver updates booking status (inProgress / completed) ──────────────────
+// ─── Driver updates booking status ────────────────────────────────────────────
+// Valid transitions: accepted → inProgress → completed
 exports.updateBookingStatus = async (req, res) => {
   try {
-    // FIX (DEF-002): was `!req.session?.user?.role === 'driver'` which always
-    // evaluates to false due to operator precedence, bypassing the auth check.
+    // DEF-002 was fixed in Phase 1; auth guard is correct here
     if (req.session?.user?.role !== 'driver' || !req.session?.user?.driverId) {
       return res.status(401).json({ status: 'error', message: 'Driver authentication required' });
     }
@@ -250,11 +297,10 @@ exports.updateBookingStatus = async (req, res) => {
     if (!status) {
       return res.status(400).json({ status: 'error', message: 'Status is required' });
     }
-
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
         status: 'error',
-        message: `Invalid status. Allowed values are: ${allowedStatuses.join(', ')}`
+        message: `Invalid status. Allowed: ${allowedStatuses.join(', ')}`
       });
     }
 
@@ -263,12 +309,12 @@ exports.updateBookingStatus = async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'Booking not found' });
     }
 
-    // Ownership check — only the assigned driver may update
+    // Ownership check
     if (booking.driver?.toString() !== req.session.user.driverId.toString()) {
       return res.status(403).json({ status: 'error', message: 'This booking is not assigned to you' });
     }
 
-    // State-machine transition validation
+    // State machine — only allowed transitions
     const validTransitions = {
       accepted: ['inProgress'],
       inProgress: ['completed']
@@ -277,7 +323,7 @@ exports.updateBookingStatus = async (req, res) => {
     if (!validTransitions[booking.status]?.includes(status)) {
       return res.status(400).json({
         status: 'error',
-        message: `Cannot change status from '${booking.status}' to '${status}'. Valid transitions: ${validTransitions[booking.status]?.join(', ') || 'none'}`
+        message: `Cannot transition from '${booking.status}' to '${status}'. Allowed next states: ${validTransitions[booking.status]?.join(', ') || 'none'}`
       });
     }
 
@@ -286,16 +332,11 @@ exports.updateBookingStatus = async (req, res) => {
     if (status === 'completed') booking.completedAt = new Date();
     await booking.save();
 
-    // Restore driver availability on completion
+    // Free the driver on completion
     if (status === 'completed') {
       await Driver.findByIdAndUpdate(req.session.user.driverId, {
         isAvailable: true,
         currentBooking: null
-      });
-    } else if (status === 'inProgress') {
-      await Driver.findByIdAndUpdate(req.session.user.driverId, {
-        isAvailable: false,
-        currentBooking: booking._id
       });
     }
 
@@ -310,14 +351,13 @@ exports.updateBookingStatus = async (req, res) => {
         driverId: req.session.user.driverId,
         driverName: driver?.user?.name,
         hospitalName: driver?.hospital?.name,
-        timestamp: Date.now(),
-        isTripInProgress: status === 'inProgress'
+        timestamp: Date.now()
       });
     }
 
     res.status(200).json({
       status: 'success',
-      message: `Booking status updated to ${status} successfully`,
+      message: `Booking updated to '${status}'`,
       data: { booking }
     });
   } catch (err) {
@@ -342,20 +382,22 @@ exports.cancelBooking = async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'Booking not found' });
     }
 
-    // Authorisation: the patient who made the booking OR the assigned driver
     const isOwner = booking.user?.toString() === req.session.user.id;
     const isAssignedDriver =
       req.session.user.role === 'driver' &&
       booking.driver?.toString() === req.session.user.driverId?.toString();
 
     if (!isOwner && !isAssignedDriver) {
-      return res.status(403).json({ status: 'error', message: 'You are not authorised to cancel this booking' });
+      return res.status(403).json({
+        status: 'error',
+        message: 'You are not authorised to cancel this booking'
+      });
     }
 
     if (!['pending', 'accepted'].includes(booking.status)) {
       return res.status(400).json({
         status: 'error',
-        message: `Cannot cancel a booking that is already '${booking.status}'`
+        message: `A booking with status '${booking.status}' cannot be cancelled`
       });
     }
 
@@ -369,6 +411,10 @@ exports.cancelBooking = async (req, res) => {
         isAvailable: true,
         currentBooking: null
       });
+    }
+
+    if (req.app.io) {
+      req.app.io.emit('bookingCancelled', { bookingId: booking._id });
     }
 
     res.status(200).json({ status: 'success', data: { booking } });
@@ -405,14 +451,18 @@ exports.rateBooking = async (req, res) => {
     }
 
     if (booking.status !== 'completed') {
-      return res.status(400).json({ status: 'error', message: 'You can only rate completed bookings' });
+      return res.status(400).json({ status: 'error', message: 'Only completed bookings can be rated' });
+    }
+
+    if (booking.rating) {
+      return res.status(409).json({ status: 'error', message: 'This booking has already been rated' });
     }
 
     booking.rating = rating;
-    booking.feedback = feedback || '';
+    booking.feedback = feedback?.trim() || '';
     await booking.save();
 
-    // Update driver's rolling average rating
+    // Update driver's rolling average
     if (booking.driver) {
       const driver = await Driver.findById(booking.driver);
       if (driver) {
@@ -435,16 +485,15 @@ exports.rateBooking = async (req, res) => {
 };
 
 // ─── Driver declines a booking ────────────────────────────────────────────────
-// NOTE (DB-003): The status is intentionally left as 'pending' after a decline
-// so that other drivers can still claim the booking.  The declining driver's ID
-// is pushed onto `declinedBy` so they won't be sent the request again (future
-// filter logic — tracked as Phase 2 work).
+// Status stays 'pending'; driver is added to declinedBy so they won't be
+// offered the same booking again.  A re-broadcast alert is emitted so other
+// available drivers are notified that the booking is still open.
 exports.declineBooking = async (req, res) => {
   try {
     const bookingId = req.params.bookingId;
 
     if (!req.session.user || !req.session.user.driverId) {
-      return res.status(401).json({ status: 'error', message: 'Driver not found in session' });
+      return res.status(401).json({ status: 'error', message: 'Driver session not found' });
     }
 
     const driverId = req.session.user.driverId;
@@ -457,17 +506,27 @@ exports.declineBooking = async (req, res) => {
     if (booking.status !== 'pending') {
       return res.status(400).json({
         status: 'error',
-        message: 'This booking cannot be declined as it is no longer pending'
+        message: 'Only pending bookings can be declined'
       });
     }
 
-    // Keep status as 'pending' — only record who declined
-    booking.declinedBy = booking.declinedBy || [];
-    booking.declinedBy.push(driverId);
+    // Idempotent: don't push duplicate declines
+    const alreadyDeclined = booking.declinedBy.some(
+      (id) => id.toString() === driverId.toString()
+    );
+    if (!alreadyDeclined) {
+      booking.declinedBy.push(driverId);
+    }
     await booking.save();
 
+    // Re-broadcast so other drivers know this booking is still available.
+    // The 'drivers' room receives the alert; the frontend should hide it for
+    // drivers whose ID appears in booking.declinedBy.
     if (req.app.io) {
-      req.app.io.emit('bookingDeclined', { bookingId: booking._id, driverId });
+      req.app.io.to('drivers').emit('bookingStillPending', {
+        booking,
+        message: 'A driver passed on this booking — it is still available'
+      });
     }
 
     res.status(200).json({
@@ -485,19 +544,15 @@ exports.declineBooking = async (req, res) => {
   }
 };
 
-// ─── Get the driver's current active booking ──────────────────────────────────
+// ─── Driver's current active booking ─────────────────────────────────────────
 exports.getDriverCurrentBooking = async (req, res) => {
   try {
-    // FIX (DEF-002): was `!req.session?.user?.role === 'driver'` — operator
-    // precedence bug that always evaluated to false.
     if (req.session?.user?.role !== 'driver' || !req.session?.user?.driverId) {
       return res.status(401).json({ status: 'error', message: 'Driver authentication required' });
     }
 
-    const driverId = req.session.user.driverId;
-
     const currentBooking = await Booking.findOne({
-      driver: driverId,
+      driver: req.session.user.driverId,
       status: { $in: ['accepted', 'inProgress'] }
     })
       .sort({ createdAt: -1 })
@@ -518,33 +573,28 @@ exports.getDriverCurrentBooking = async (req, res) => {
   }
 };
 
-// ─── Handle anonymous ambulance request ───────────────────────────────────────
+// ─── Anonymous emergency request ──────────────────────────────────────────────
 exports.createAnonymousRequest = async (req, res) => {
   try {
     const { coordinates, timestamp } = req.body;
 
+    // Input validation is handled by the route middleware; this is a safety net
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length !== 2) {
-      return res.status(400).json({ status: 'error', message: 'Invalid coordinates provided' });
+      return res.status(400).json({ status: 'error', message: 'Invalid coordinates' });
     }
 
-    // Basic coordinate range validation
-    const [lng, lat] = coordinates;
-    if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-      return res.status(400).json({ status: 'error', message: 'Coordinates out of valid range' });
-    }
-
-    const availableDrivers = await Driver.find({
-      isAvailable: true,
-      isOnDuty: true
-    }).populate('user', 'name phone');
+    const availableDrivers = await findAvailableDrivers(coordinates);
 
     if (availableDrivers.length === 0) {
-      return res.status(404).json({ status: 'error', message: 'No available ambulances found' });
+      return res.status(404).json({
+        status: 'error',
+        message: 'No ambulances are available right now. Please call 112 directly.'
+      });
     }
 
     const booking = await Booking.create({
       type: 'anonymous',
-      isAnonymous: true,
+      // isAnonymous is set automatically by the Booking pre-save hook
       pickupLocation: {
         type: 'Point',
         coordinates,
@@ -562,7 +612,7 @@ exports.createAnonymousRequest = async (req, res) => {
     if (req.app.io) {
       req.app.io.to('drivers').emit('anonymousRequestAlert', {
         booking,
-        totalDrivers: availableDrivers.length,
+        nearbyDriverCount: availableDrivers.length,
         isAnonymous: true
       });
     }
@@ -570,7 +620,7 @@ exports.createAnonymousRequest = async (req, res) => {
     res.status(200).json({
       status: 'success',
       message: 'Emergency request sent to all available drivers',
-      data: { booking, totalDrivers: availableDrivers.length }
+      data: { booking, nearbyDriverCount: availableDrivers.length }
     });
   } catch (err) {
     console.error('Anonymous request error:', err);

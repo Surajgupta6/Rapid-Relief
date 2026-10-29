@@ -2,19 +2,29 @@ const express = require('express');
 const bookingController = require('../controllers/bookingController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { anonymousBookingLimiter } = require('../middleware/rateLimiters');
+const {
+  createBookingRules,
+  anonymousBookingRules,
+  handleValidationErrors
+} = require('../middleware/validate');
 
 const router = express.Router();
 
 // ── Public routes ─────────────────────────────────────────────────────────────
-// Anonymous emergency request is unauthenticated but rate-limited to prevent
-// flooding the driver notification queue.
-router.post('/anonymous-request', anonymousBookingLimiter, bookingController.createAnonymousRequest);
+// Anonymous emergency request — unauthenticated but rate-limited and validated.
+router.post(
+  '/anonymous-request',
+  anonymousBookingLimiter,
+  ...anonymousBookingRules,
+  handleValidationErrors,
+  bookingController.createAnonymousRequest
+);
 
-// ── Protected routes — require a valid session ─────────────────────────────────
+// ── Protected routes — require a valid session ────────────────────────────────
 router.use(authMiddleware.protect);
 
-// User — create a booking (FIX DEF-007: moved inside protect so req.session.user is guaranteed)
-router.post('/', bookingController.createBooking);
+// User — create a booking (DEF-007: inside protect so req.session.user is guaranteed)
+router.post('/', ...createBookingRules, handleValidationErrors, bookingController.createBooking);
 
 // User — own booking history
 router.get('/user', bookingController.getUserBookings);
