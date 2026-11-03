@@ -13,7 +13,12 @@ router.get('/stats', adminController.getStats);
 
 // ── Driver management ─────────────────────────────────────────────────────────
 router.get('/drivers', adminController.listDrivers);
+router.get('/drivers/stale', adminController.listStaleDrivers);
 router.post('/drivers/:driverId/verify', adminController.verifyDriver);
 router.post('/drivers/:driverId/revoke', adminController.revokeDriver);
+
+// ── Booking management ────────────────────────────────────────────────────────
+router.get('/bookings/stale', adminController.listStaleBookings);
+router.post('/bookings/:bookingId/force-cancel', adminController.forceCancelBooking);
 
 module.exports = router;

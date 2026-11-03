@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
 
@@ -17,22 +18,23 @@ function calculateFare(pickupCoords, dropCoords) {
 
 // ─── Dispatch helper ──────────────────────────────────────────────────────────
 /**
- * Finds available drivers near a pickup point.
+ * Finds available, admin-verified drivers near a pickup point.
  *
  * Strategy (two-pass):
- *  1. $near search among drivers who have set their location (locationSetAt
- *     is not null), within a 50 km radius, sorted closest-first.
- *  2. If no geo-located drivers are found, fall back to any available driver
- *     regardless of location (emergency fallback).
+ *  1. $near search among verified drivers who have set their location
+ *     (locationSetAt is not null), within a 50 km radius, sorted closest-first.
+ *  2. If no geo-located drivers are found, fall back to any verified available
+ *     driver regardless of location (emergency fallback).
  *
- * This avoids returning drivers whose coordinates are still [0, 0] (the
- * default set on registration) in proximity results.
+ * Returns { drivers, staleWarning } where staleWarning is true if one or more
+ * drivers haven't updated their GPS in the last 30 minutes — the caller can
+ * surface this to the user so they know ETA estimates may be inaccurate.
  */
 async function findAvailableDrivers(pickupCoords) {
   // Pass 1 — proximity-aware, verified drivers only
   let drivers = await Driver.find({
     isAvailable: true,
-    isVerified: true, // Phase 3: only admin-verified drivers receive dispatch
+    isVerified: true,
     locationSetAt: { $ne: null }, // exclude [0,0] default-coord drivers
     location: {
       $near: {
@@ -46,10 +48,20 @@ async function findAvailableDrivers(pickupCoords) {
 
   // Pass 2 — fallback: any verified available driver regardless of location
   if (drivers.length === 0) {
-    drivers = await Driver.find({ isAvailable: true, isVerified: true }).populate('user', 'name phone');
+    drivers = await Driver.find({
+      isAvailable: true,
+      isVerified: true
+    }).populate('user', 'name phone');
   }
 
-  return drivers;
+  // Stale-location warning: flag if any returned driver hasn't updated GPS
+  // in the last 30 minutes.  ETAs may be unreliable for those drivers.
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+  const staleWarning = drivers.some(
+    (d) => d.locationSetAt && d.locationSetAt < thirtyMinutesAgo
+  );
+
+  return { drivers, staleWarning };
 }
 
 // ─── Create a regular booking ─────────────────────────────────────────────────
@@ -77,7 +89,7 @@ exports.createBooking = async (req, res) => {
     }
 
     const pickupCoords = pickupLocation.coordinates;
-    const availableDrivers = await findAvailableDrivers(pickupCoords);
+    const { drivers: availableDrivers, staleWarning } = await findAvailableDrivers(pickupCoords);
 
     if (availableDrivers.length === 0) {
       return res.status(404).json({
@@ -90,7 +102,7 @@ exports.createBooking = async (req, res) => {
     const dropCoords = dropLocation?.coordinates;
     const fare = dropCoords ? calculateFare(pickupCoords, dropCoords) : null;
 
-    const booking = await Booking.create({
+    const booking = new Booking({
       user: req.session.user.id,
       type: 'regular',
       patientName,
@@ -116,6 +128,12 @@ exports.createBooking = async (req, res) => {
       status: 'pending'
     });
 
+    // Audit: who created this booking
+    booking._changedBy = req.session.user.id;
+    booking._changedByModel = 'User';
+    booking._changeReason = 'booking_created';
+    await booking.save();
+
     // Broadcast to all drivers connected to the 'drivers' Socket.IO room
     if (req.app.io) {
       req.app.io.to('drivers').emit('newBookingAlert', {
@@ -127,7 +145,13 @@ exports.createBooking = async (req, res) => {
     res.status(201).json({
       status: 'success',
       message: 'Booking created successfully',
-      data: { booking, nearbyDriverCount: availableDrivers.length }
+      data: {
+        booking,
+        nearbyDriverCount: availableDrivers.length,
+        staleLocationWarning: staleWarning
+          ? 'Some nearby drivers have not updated their location recently — actual ETAs may vary'
+          : undefined
+      }
     });
   } catch (err) {
     console.error('Booking creation error:', err);
@@ -201,7 +225,11 @@ exports.getDriverBookings = async (req, res) => {
   }
 };
 
-// ─── Driver accepts a booking (atomic) ───────────────────────────────────────
+// ─── Driver accepts a booking ─────────────────────────────────────────────────
+// Uses optimistic locking (__v) plus a MongoDB session/transaction where the
+// deployment supports replica sets.  On standalone MongoDB (local dev without
+// a replica set) the transaction is skipped and the two-write sequence runs
+// without a transaction — the optimistic lock still prevents double-accept.
 exports.acceptBooking = async (req, res) => {
   try {
     const bookingId = req.params.bookingId;
@@ -225,16 +253,8 @@ exports.acceptBooking = async (req, res) => {
       });
     }
 
-    // Atomic claim with optimistic locking (DEF-001 + Phase 3 hardening).
-    //
-    // Strategy: read the booking's current __v (version key) BEFORE updating,
-    // then include it as a filter condition.  Mongoose's versionKey (__v) is
-    // incremented on every save().  Because findOneAndUpdate does NOT
-    // auto-increment __v, we do it explicitly with $inc.
-    //
-    // This means: if two drivers call acceptBooking at the exact same millisecond
-    // and both read __v=0, only ONE of their updates will match
-    // { _id, status:'pending', __v:0 } — the other gets null and returns 409.
+    // ── Optimistic-lock read ───────────────────────────────────────────────────
+    // Read the booking's current version before the update.
     const bookingToAccept = await Booking.findOne({ _id: bookingId, status: 'pending' });
     if (!bookingToAccept) {
       const exists = await Booking.exists({ _id: bookingId });
@@ -248,36 +268,111 @@ exports.acceptBooking = async (req, res) => {
     }
     const currentVersion = bookingToAccept.__v;
 
-    const booking = await Booking.findOneAndUpdate(
-      { _id: bookingId, status: 'pending', __v: currentVersion },
-      {
-        $set: {
-          status: 'accepted',
-          driver: driverId,
-          hospital: driver.hospital?._id,
-          acceptedAt: new Date()
+    // ── Transaction attempt ───────────────────────────────────────────────────
+    // Try to open a MongoDB client session for a multi-document transaction.
+    // If the deployment is a standalone node (no replica set), startSession()
+    // still succeeds but commitTransaction() will throw — we catch that and
+    // fall through to the non-transactional path.
+    let booking = null;
+    let usedTransaction = false;
+
+    const mongoSession = await mongoose.startSession();
+    try {
+      mongoSession.startTransaction();
+
+      // Atomic claim with optimistic locking — only succeeds if __v matches.
+      booking = await Booking.findOneAndUpdate(
+        { _id: bookingId, status: 'pending', __v: currentVersion },
+        {
+          $set: {
+            status: 'accepted',
+            driver: driverId,
+            hospital: driver.hospital?._id,
+            acceptedAt: new Date()
+          },
+          $push: {
+            statusHistory: {
+              status: 'accepted',
+              changedBy: driverId,
+              changedByModel: 'Driver',
+              reason: 'driver_accepted',
+              timestamp: new Date()
+            }
+          },
+          $inc: { __v: 1 }
         },
-        $inc: { __v: 1 } // advance version so any concurrent accept misses
-      },
-      { new: true }
-    );
+        { new: true, session: mongoSession }
+      );
 
-    if (!booking) {
-      const exists = await Booking.exists({ _id: bookingId });
-      if (!exists) {
-        return res.status(404).json({ status: 'error', message: 'Booking not found' });
+      if (!booking) {
+        await mongoSession.abortTransaction();
+        const exists = await Booking.exists({ _id: bookingId });
+        if (!exists) {
+          return res.status(404).json({ status: 'error', message: 'Booking not found' });
+        }
+        return res.status(409).json({
+          status: 'error',
+          message: 'This booking was already accepted by another driver'
+        });
       }
-      return res.status(409).json({
-        status: 'error',
-        message: 'This booking was already accepted by another driver'
-      });
-    }
 
-    // Mark the driver as busy
-    await Driver.findByIdAndUpdate(driverId, {
-      isAvailable: false,
-      currentBooking: booking._id
-    });
+      await Driver.findByIdAndUpdate(
+        driverId,
+        { isAvailable: false, currentBooking: booking._id },
+        { session: mongoSession }
+      );
+
+      await mongoSession.commitTransaction();
+      usedTransaction = true;
+    } catch (txErr) {
+      // Standalone MongoDB does not support multi-document transactions.
+      // Fall back to two sequential writes — optimistic lock still guards
+      // against the race condition.
+      await mongoSession.abortTransaction().catch(() => {});
+
+      if (usedTransaction) {
+        // The transaction itself committed but something else failed — rethrow.
+        throw txErr;
+      }
+
+      // Non-transactional fallback
+      booking = await Booking.findOneAndUpdate(
+        { _id: bookingId, status: 'pending', __v: currentVersion },
+        {
+          $set: {
+            status: 'accepted',
+            driver: driverId,
+            hospital: driver.hospital?._id,
+            acceptedAt: new Date()
+          },
+          $push: {
+            statusHistory: {
+              status: 'accepted',
+              changedBy: driverId,
+              changedByModel: 'Driver',
+              reason: 'driver_accepted',
+              timestamp: new Date()
+            }
+          },
+          $inc: { __v: 1 }
+        },
+        { new: true }
+      );
+
+      if (!booking) {
+        return res.status(409).json({
+          status: 'error',
+          message: 'This booking was already accepted by another driver'
+        });
+      }
+
+      await Driver.findByIdAndUpdate(driverId, {
+        isAvailable: false,
+        currentBooking: booking._id
+      });
+    } finally {
+      mongoSession.endSession();
+    }
 
     if (req.app.io) {
       req.app.io.emit('bookingAccepted', {
@@ -310,7 +405,6 @@ exports.acceptBooking = async (req, res) => {
 // Valid transitions: accepted → inProgress → completed
 exports.updateBookingStatus = async (req, res) => {
   try {
-    // DEF-002 was fixed in Phase 1; auth guard is correct here
     if (req.session?.user?.role !== 'driver' || !req.session?.user?.driverId) {
       return res.status(401).json({ status: 'error', message: 'Driver authentication required' });
     }
@@ -354,6 +448,11 @@ exports.updateBookingStatus = async (req, res) => {
     booking.status = status;
     if (status === 'inProgress') booking.startedAt = new Date();
     if (status === 'completed') booking.completedAt = new Date();
+
+    // Audit trail — set transient fields for the pre-save hook
+    booking._changedBy = req.session.user.driverId;
+    booking._changedByModel = 'Driver';
+    booking._changeReason = status === 'inProgress' ? 'trip_started' : 'trip_completed';
     await booking.save();
 
     // Free the driver on completion
@@ -427,6 +526,12 @@ exports.cancelBooking = async (req, res) => {
 
     booking.status = 'cancelled';
     booking.cancelledAt = new Date();
+
+    // Audit trail
+    const isDriver = req.session.user.role === 'driver';
+    booking._changedBy = isDriver ? req.session.user.driverId : req.session.user.id;
+    booking._changedByModel = isDriver ? 'Driver' : 'User';
+    booking._changeReason = isDriver ? 'driver_cancelled' : 'user_cancelled';
     await booking.save();
 
     // Free the driver if one was assigned
@@ -544,8 +649,6 @@ exports.declineBooking = async (req, res) => {
     await booking.save();
 
     // Re-broadcast so other drivers know this booking is still available.
-    // The 'drivers' room receives the alert; the frontend should hide it for
-    // drivers whose ID appears in booking.declinedBy.
     if (req.app.io) {
       req.app.io.to('drivers').emit('bookingStillPending', {
         booking,
@@ -598,7 +701,7 @@ exports.getDriverCurrentBooking = async (req, res) => {
 };
 
 // ─── Anonymous emergency request ──────────────────────────────────────────────
-// Idempotency key (Phase 3): clients may send an `idempotencyKey` (e.g. a UUID
+// Idempotency key: clients may send an `idempotencyKey` (e.g. a UUID
 // generated on the device) with each request.  If a booking with that key was
 // already created in the last 5 minutes, the existing booking is returned
 // rather than creating a duplicate — safe to retry on network failure.
@@ -627,7 +730,7 @@ exports.createAnonymousRequest = async (req, res) => {
       }
     }
 
-    const availableDrivers = await findAvailableDrivers(coordinates);
+    const { drivers: availableDrivers, staleWarning } = await findAvailableDrivers(coordinates);
 
     if (availableDrivers.length === 0) {
       return res.status(404).json({
@@ -636,7 +739,7 @@ exports.createAnonymousRequest = async (req, res) => {
       });
     }
 
-    const booking = await Booking.create({
+    const booking = new Booking({
       type: 'anonymous',
       // isAnonymous is set automatically by the Booking pre-save hook
       idempotencyKey: idempotencyKey || null,
@@ -650,9 +753,12 @@ exports.createAnonymousRequest = async (req, res) => {
         coordinates,
         address: 'To be determined'
       },
-      status: 'pending',
-      createdAt: timestamp || Date.now()
+      status: 'pending'
     });
+
+    // Audit: system-initiated (no changedBy for anonymous)
+    booking._changeReason = 'anonymous_request_created';
+    await booking.save();
 
     if (req.app.io) {
       req.app.io.to('drivers').emit('anonymousRequestAlert', {
@@ -665,7 +771,13 @@ exports.createAnonymousRequest = async (req, res) => {
     res.status(200).json({
       status: 'success',
       message: 'Emergency request sent to all available drivers',
-      data: { booking, nearbyDriverCount: availableDrivers.length }
+      data: {
+        booking,
+        nearbyDriverCount: availableDrivers.length,
+        staleLocationWarning: staleWarning
+          ? 'Some nearby drivers have not updated their location recently — actual ETAs may vary'
+          : undefined
+      }
     });
   } catch (err) {
     console.error('Anonymous request error:', err);

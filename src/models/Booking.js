@@ -11,7 +11,46 @@ const mongoose = require('mongoose');
  *
  * A driver declining a booking does NOT change the status; it only pushes the
  * driver's ID onto `declinedBy` so that driver is excluded from future alerts.
+ *
+ * Every status transition is recorded as an immutable entry in `statusHistory`
+ * (see Phase 4).  This gives a full audit trail without a separate collection.
  */
+
+// ── Status-history entry ───────────────────────────────────────────────────────
+// Each entry is appended when the booking's status changes.  Entries are never
+// deleted or updated — they form an append-only audit log.
+const statusHistorySchema = new mongoose.Schema(
+  {
+    // The status the booking transitioned TO.
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'inProgress', 'completed', 'cancelled'],
+      required: true
+    },
+    // Who triggered the transition (userId or driverId).
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: 'statusHistory.changedByModel'
+    },
+    changedByModel: {
+      type: String,
+      enum: ['User', 'Driver'],
+      default: 'User'
+    },
+    // Optional machine-readable reason (e.g. 'driver_accepted', 'admin_force_cancel').
+    reason: {
+      type: String,
+      trim: true
+    },
+    // Wall-clock time of the transition.
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  { _id: true }
+);
+
 const bookingSchema = new mongoose.Schema(
   {
     user: {
@@ -156,7 +195,7 @@ const bookingSchema = new mongoose.Schema(
     completedAt: Date,
     cancelledAt: Date,
 
-    // ── Idempotency (anonymous requests) ──────────────────────────────────────
+    // ── Idempotency (anonymous requests) ──────────────────────────────────
     // Optional client-supplied key (UUID) used to deduplicate retries within
     // a 5-minute window.  Only meaningful for anonymous bookings.
     idempotencyKey: {
@@ -172,7 +211,13 @@ const bookingSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Driver'
       }
-    ]
+    ],
+
+    // ── Audit trail ───────────────────────────────────────────────────────
+    // Immutable, append-only log of every status change.
+    // The initial 'pending' entry is written by the pre-save hook below.
+    // Never delete or update entries in this array.
+    statusHistory: [statusHistorySchema]
   },
   {
     // Adds createdAt and updatedAt automatically; updatedAt refreshes on
@@ -181,20 +226,41 @@ const bookingSchema = new mongoose.Schema(
   }
 );
 
-// ── Indexes ───────────────────────────────────────────────────────────────────
+// ── Indexes ────────────────────────────────────────────────────────────────────
 bookingSchema.index({ status: 1, createdAt: -1 });
 bookingSchema.index({ user: 1, createdAt: -1 });
 bookingSchema.index({ driver: 1, createdAt: -1 });
-bookingSchema.index({ type: 1, status: 1 }); // Efficient anonymous booking queries
+bookingSchema.index({ type: 1, status: 1 });           // Efficient anonymous booking queries
 bookingSchema.index({ 'pickupLocation': '2dsphere' });
 bookingSchema.index({ 'dropLocation': '2dsphere' });
-// Sparse unique index: ensures no two active anonymous requests share the same
-// idempotency key, while allowing unlimited null values (non-anonymous bookings).
+// Sparse unique index: ensures no two anonymous requests share the same
+// idempotency key, while allowing unlimited null values.
 bookingSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+// Stale-booking queries: find old pending bookings quickly.
+bookingSchema.index({ status: 1, updatedAt: 1 });
 
-// ── Pre-save: keep isAnonymous in sync with type ──────────────────────────────
+// ── Pre-save hooks ─────────────────────────────────────────────────────────────
+
+// 1. Keep isAnonymous in sync with type.
 bookingSchema.pre('save', function (next) {
   this.isAnonymous = this.type === 'anonymous';
+  next();
+});
+
+// 2. Append a statusHistory entry whenever status changes.
+//    On document creation (isNew) the initial 'pending' entry is written here.
+bookingSchema.pre('save', function (next) {
+  if (this.isNew || this.isModified('status')) {
+    // _changedBy and _changedByModel are transient fields set by controllers
+    // before calling save() so the audit entry knows who caused the change.
+    this.statusHistory.push({
+      status: this.status,
+      changedBy: this._changedBy || null,
+      changedByModel: this._changedByModel || 'User',
+      reason: this._changeReason || null,
+      timestamp: new Date()
+    });
+  }
   next();
 });
 
