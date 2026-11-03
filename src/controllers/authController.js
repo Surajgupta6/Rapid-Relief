@@ -59,10 +59,9 @@ exports.register = async (req, res) => {
 };
 
 // ─── Register a driver (dedicated endpoint) ───────────────────────────────────
-// NOTE (DEF-005 / known issue): Driver registration currently creates both a
-// User document and a Driver document each with their own hashed password.
-// The login flow authenticates against User.password only.  Consolidating the
-// two into a single auth entity is tracked as Phase 2 work.
+// DEF-005 resolved (Phase 3): Driver registration now creates a User document
+// for authentication and a Driver document for operational data only.
+// No password is stored on the Driver document — auth uses User.password.
 exports.registerDriver = async (req, res) => {
   try {
     const {
@@ -90,8 +89,12 @@ exports.registerDriver = async (req, res) => {
 
     const user = await User.create({ name, email, password, phone, address, role: 'driver' });
 
+    // DEF-005: password is intentionally omitted — authentication is via User only.
     const driver = await Driver.create({
       user: user._id,
+      name,
+      email,
+      contactNumber: phone,
       licenseNumber,
       ambulanceDetails: {
         registrationNumber,
@@ -99,7 +102,7 @@ exports.registerDriver = async (req, res) => {
         capacity: parseInt(capacity),
         features: features ? features.split(',').map((f) => f.trim()) : []
       },
-      status: 'offline'
+      status: 'available'
     });
 
     req.session.user = {

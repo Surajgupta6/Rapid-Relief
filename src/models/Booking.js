@@ -156,6 +156,14 @@ const bookingSchema = new mongoose.Schema(
     completedAt: Date,
     cancelledAt: Date,
 
+    // ── Idempotency (anonymous requests) ──────────────────────────────────────
+    // Optional client-supplied key (UUID) used to deduplicate retries within
+    // a 5-minute window.  Only meaningful for anonymous bookings.
+    idempotencyKey: {
+      type: String,
+      default: null
+    },
+
     // ── Decline tracking ──────────────────────────────────────────────────
     // Drivers who have declined this booking.  The booking remains 'pending'
     // so other drivers can still claim it.
@@ -180,6 +188,9 @@ bookingSchema.index({ driver: 1, createdAt: -1 });
 bookingSchema.index({ type: 1, status: 1 }); // Efficient anonymous booking queries
 bookingSchema.index({ 'pickupLocation': '2dsphere' });
 bookingSchema.index({ 'dropLocation': '2dsphere' });
+// Sparse unique index: ensures no two active anonymous requests share the same
+// idempotency key, while allowing unlimited null values (non-anonymous bookings).
+bookingSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 // ── Pre-save: keep isAnonymous in sync with type ──────────────────────────────
 bookingSchema.pre('save', function (next) {

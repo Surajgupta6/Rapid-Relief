@@ -1,13 +1,28 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
+/**
+ * Driver — one document per ambulance driver.
+ *
+ * Authentication: Drivers authenticate via the linked User document.
+ * The Driver document holds operational data only (vehicle, location, status).
+ *
+ * DEF-005 (resolved in Phase 3): The old schema stored a redundant hashed
+ * password on the Driver document alongside the canonical User.password.
+ * Login and session creation have always used User.password exclusively.
+ * The duplicate field is removed here; existing drivers are unaffected
+ * because auth reads from User, not Driver.
+ */
 const driverSchema = new mongoose.Schema(
   {
+    // ── Identity link ──────────────────────────────────────────────────────────
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      required: true,
+      unique: true // one Driver doc per User account
     },
+
+    // ── Personal details (denormalised from User for fast display) ─────────────
     name: {
       type: String,
       required: [true, 'Name is required'],
@@ -19,19 +34,17 @@ const driverSchema = new mongoose.Schema(
       unique: true,
       lowercase: true
     },
-    // NOTE (DEF-005): This password field is a known architectural issue —
-    // drivers have credentials in both the User document and this Driver
-    // document.  The active login flow authenticates against User.password
-    // only.  Consolidation into a single auth entity is tracked as Phase 3.
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      select: false
-    },
     contactNumber: {
       type: String,
       required: [true, 'Contact number is required']
     },
+
+    // ── Credentials ────────────────────────────────────────────────────────────
+    // NOTE: Driver.password intentionally removed (Phase 3 / DEF-005).
+    // All authentication is performed against the linked User document.
+    // Keeping password off this schema prevents accidental double-hashing
+    // and removes an unnecessary attack surface.
+
     licenseNumber: {
       type: String,
       required: [true, 'License number is required'],
@@ -53,25 +66,42 @@ const driverSchema = new mongoose.Schema(
       required: [true, 'Hospital information is required']
     },
 
-    // ── Availability ────────────────────────────────────────────────────────
-    isAvailable: {
-      type: Boolean,
-      default: true
-    },
-    // isVerified: set to true by an admin once credentials are validated.
-    // An admin verification flow does not yet exist (Phase 3).
+    // ── Admin verification ─────────────────────────────────────────────────────
+    // isVerified: must be set true by an admin before the driver appears in
+    // dispatch queries and receives booking alerts.
     isVerified: {
       type: Boolean,
       default: false
     },
+    verifiedAt: {
+      type: Date,
+      default: null
+    },
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User', // the admin who approved this driver
+      default: null
+    },
+
+    // ── Availability ───────────────────────────────────────────────────────────
+    isAvailable: {
+      type: Boolean,
+      default: true
+    },
+    availabilityUpdatedAt: {
+      type: Date,
+      default: null // set whenever isAvailable changes
+    },
+
     // currentBooking: the active booking this driver is handling.
+    // Cleared to null on booking completion or cancellation.
     currentBooking: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Booking',
       default: null
     },
 
-    // ── Location ────────────────────────────────────────────────────────────
+    // ── Location ───────────────────────────────────────────────────────────────
     location: {
       type: {
         type: String,
@@ -92,14 +122,14 @@ const driverSchema = new mongoose.Schema(
       default: null
     },
 
-    // ── Status (granular, beyond the boolean isAvailable) ──────────────────
+    // ── Status (granular, beyond the boolean isAvailable) ─────────────────────
     status: {
       type: String,
       enum: ['available', 'onDuty', 'onTheWay'],
       default: 'available'
     },
 
-    // ── Ambulance details ───────────────────────────────────────────────────
+    // ── Ambulance details ──────────────────────────────────────────────────────
     ambulanceDetails: {
       registrationNumber: {
         type: String,
@@ -114,7 +144,7 @@ const driverSchema = new mongoose.Schema(
       features: [String]
     },
 
-    // ── Rating ──────────────────────────────────────────────────────────────
+    // ── Rating ─────────────────────────────────────────────────────────────────
     rating: {
       type: Number,
       default: 0,
@@ -130,21 +160,18 @@ const driverSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ── Indexes ───────────────────────────────────────────────────────────────────
+// ── Indexes ────────────────────────────────────────────────────────────────────
 driverSchema.index({ location: '2dsphere' });
-driverSchema.index({ isAvailable: 1, locationSetAt: 1 }); // Dispatch query support
+driverSchema.index({ isAvailable: 1, isVerified: 1, locationSetAt: 1 }); // Dispatch query support
+driverSchema.index({ isVerified: 1 }); // Admin verification queries
 
-// ── Password hashing ──────────────────────────────────────────────────────────
-driverSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
+// ── Pre-save: track when availability changes ──────────────────────────────────
+driverSchema.pre('save', function (next) {
+  if (this.isModified('isAvailable')) {
+    this.availabilityUpdatedAt = new Date();
+  }
   next();
 });
-
-// ── Instance method ───────────────────────────────────────────────────────────
-driverSchema.methods.correctPassword = async function (candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
-};
 
 const Driver = mongoose.model('Driver', driverSchema);
 

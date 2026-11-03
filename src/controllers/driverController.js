@@ -227,11 +227,12 @@ exports.register = async (req, res) => {
     });
     await user.save();
 
+    // DEF-005 resolved: password is no longer stored on the Driver document.
+    // Auth is handled exclusively via the linked User document.
     const driver = new Driver({
       user: user._id,
       name,
       email,
-      password,
       contactNumber,
       licenseNumber,
       vehicleNumber: ambulanceDetails.registrationNumber,

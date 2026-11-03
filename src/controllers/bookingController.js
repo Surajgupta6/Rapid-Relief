@@ -29,9 +29,10 @@ function calculateFare(pickupCoords, dropCoords) {
  * default set on registration) in proximity results.
  */
 async function findAvailableDrivers(pickupCoords) {
-  // Pass 1 — proximity-aware
+  // Pass 1 — proximity-aware, verified drivers only
   let drivers = await Driver.find({
     isAvailable: true,
+    isVerified: true, // Phase 3: only admin-verified drivers receive dispatch
     locationSetAt: { $ne: null }, // exclude [0,0] default-coord drivers
     location: {
       $near: {
@@ -43,9 +44,9 @@ async function findAvailableDrivers(pickupCoords) {
     .populate('user', 'name phone')
     .limit(20);
 
-  // Pass 2 — fallback (no proximity constraint)
+  // Pass 2 — fallback: any verified available driver regardless of location
   if (drivers.length === 0) {
-    drivers = await Driver.find({ isAvailable: true }).populate('user', 'name phone');
+    drivers = await Driver.find({ isAvailable: true, isVerified: true }).populate('user', 'name phone');
   }
 
   return drivers;
@@ -224,16 +225,39 @@ exports.acceptBooking = async (req, res) => {
       });
     }
 
-    // Atomic claim — eliminates the race condition (DEF-001).
-    // Only one driver can match { _id: bookingId, status: 'pending' }
-    // and the update happens in a single server round-trip.
+    // Atomic claim with optimistic locking (DEF-001 + Phase 3 hardening).
+    //
+    // Strategy: read the booking's current __v (version key) BEFORE updating,
+    // then include it as a filter condition.  Mongoose's versionKey (__v) is
+    // incremented on every save().  Because findOneAndUpdate does NOT
+    // auto-increment __v, we do it explicitly with $inc.
+    //
+    // This means: if two drivers call acceptBooking at the exact same millisecond
+    // and both read __v=0, only ONE of their updates will match
+    // { _id, status:'pending', __v:0 } — the other gets null and returns 409.
+    const bookingToAccept = await Booking.findOne({ _id: bookingId, status: 'pending' });
+    if (!bookingToAccept) {
+      const exists = await Booking.exists({ _id: bookingId });
+      if (!exists) {
+        return res.status(404).json({ status: 'error', message: 'Booking not found' });
+      }
+      return res.status(409).json({
+        status: 'error',
+        message: 'This booking was already accepted by another driver'
+      });
+    }
+    const currentVersion = bookingToAccept.__v;
+
     const booking = await Booking.findOneAndUpdate(
-      { _id: bookingId, status: 'pending' },
+      { _id: bookingId, status: 'pending', __v: currentVersion },
       {
-        status: 'accepted',
-        driver: driverId,
-        hospital: driver.hospital?._id,
-        acceptedAt: new Date()
+        $set: {
+          status: 'accepted',
+          driver: driverId,
+          hospital: driver.hospital?._id,
+          acceptedAt: new Date()
+        },
+        $inc: { __v: 1 } // advance version so any concurrent accept misses
       },
       { new: true }
     );
@@ -574,13 +598,33 @@ exports.getDriverCurrentBooking = async (req, res) => {
 };
 
 // ─── Anonymous emergency request ──────────────────────────────────────────────
+// Idempotency key (Phase 3): clients may send an `idempotencyKey` (e.g. a UUID
+// generated on the device) with each request.  If a booking with that key was
+// already created in the last 5 minutes, the existing booking is returned
+// rather than creating a duplicate — safe to retry on network failure.
 exports.createAnonymousRequest = async (req, res) => {
   try {
-    const { coordinates, timestamp } = req.body;
+    const { coordinates, timestamp, idempotencyKey } = req.body;
 
     // Input validation is handled by the route middleware; this is a safety net
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length !== 2) {
       return res.status(400).json({ status: 'error', message: 'Invalid coordinates' });
+    }
+
+    // ── Idempotency check ──────────────────────────────────────────────────────
+    if (idempotencyKey) {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const existingBooking = await Booking.findOne({
+        idempotencyKey,
+        createdAt: { $gte: fiveMinutesAgo }
+      });
+      if (existingBooking) {
+        return res.status(200).json({
+          status: 'success',
+          message: 'Duplicate request — returning existing booking',
+          data: { booking: existingBooking, deduplicated: true }
+        });
+      }
     }
 
     const availableDrivers = await findAvailableDrivers(coordinates);
@@ -595,6 +639,7 @@ exports.createAnonymousRequest = async (req, res) => {
     const booking = await Booking.create({
       type: 'anonymous',
       // isAnonymous is set automatically by the Booking pre-save hook
+      idempotencyKey: idempotencyKey || null,
       pickupLocation: {
         type: 'Point',
         coordinates,

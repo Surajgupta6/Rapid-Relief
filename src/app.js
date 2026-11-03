@@ -44,6 +44,7 @@ const driverRoutes = require('./routes/driver');
 const bookingRoutes = require('./routes/booking');
 const authMiddleware = require('./middleware/authMiddleware');
 const hospitalRoutes = require('./routes/hospital');
+const adminRoutes = require('./routes/admin');
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -233,6 +234,8 @@ app.use('/user', authMiddleware.protect, userRoutes);
 app.use('/driver/api', authMiddleware.protect, authMiddleware.restrictTo('driver'), driverRoutes);
 app.use('/booking', bookingRoutes);
 app.use('/hospital', hospitalRoutes);
+// Admin API — requires valid session + admin role (enforced inside the router)
+app.use('/api/admin', adminRoutes);
 
 // Driver page routes (separate from the /driver/api JSON API)
 app.get(
