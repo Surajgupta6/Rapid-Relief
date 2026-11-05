@@ -245,33 +245,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ─── Database connection + server startup ─────────────────────────────────────
+// ─── Database connection and server startup ───────────────────────────────────
+// Handled by src/start.js (production/dev) or by the test setup (NODE_ENV=test).
+// app.js only configures Express; it does NOT call mongoose.connect() or
+// server.listen() — this keeps the module importable in tests without side effects.
 mongoose.set('strictQuery', true);
 
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      if (!isProd) console.log(`Application available at http://localhost:${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-  });
-
-// ─── Process-level safety nets ────────────────────────────────────────────────
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION — shutting down:', err);
-  server.close(() => process.exit(1));
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION — shutting down:', err);
-  process.exit(1);
-});
-
-module.exports = app;
+// Export both so src/start.js can call server.listen() and tests can use app.
+module.exports = { app, server };
