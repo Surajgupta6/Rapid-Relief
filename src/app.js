@@ -32,10 +32,7 @@ const i18n = require('./config/i18n');
 const cookieParser = require('cookie-parser');
 const driverController = require('./controllers/driverController');
 const { authLimiter, anonymousBookingLimiter } = require('./middleware/rateLimiters');
-
-// Import models
-const Driver = require('./models/Driver');
-const Booking = require('./models/Booking');
+const { attachSocketHandlers } = require('./sockets');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -141,7 +138,7 @@ io.use((socket, next) => {
 });
 
 // Tag each socket with its authenticated identity.  Connections are NOT
-// rejected here — privileged events are validated per-handler below.
+// rejected here — privileged events are validated per-handler in sockets/index.js.
 io.use((socket, next) => {
   const sess = socket.request.session;
   socket.isAuthenticated = !!(sess && sess.user && sess.user.id);
@@ -152,80 +149,8 @@ io.use((socket, next) => {
 });
 
 // ─── Socket.IO event handlers ─────────────────────────────────────────────────
-io.on('connection', (socket) => {
-  // ── register ──────────────────────────────────────────────────────────────
-  // A client registers itself so the server knows which room to route events
-  // to.  The claimed identity is validated against the session to prevent
-  // impersonation.
-  socket.on('register', (data) => {
-    if (!socket.isAuthenticated) return;
-
-    const { type, id } = data;
-    const user = socket.sessionUser;
-
-    // Reject if the caller claims to be a different user or wrong role
-    if (!id || id.toString() !== user.id.toString()) return;
-    if (type === 'driver' && user.role !== 'driver') return;
-    if (type === 'user' && user.role === 'driver') return;
-
-    socket.userData = { type, id };
-    socket.join(`${type}_${id}`);
-
-    // Drivers join the shared 'drivers' room to receive booking alerts
-    if (type === 'driver') {
-      socket.join('drivers');
-    }
-  });
-
-  // ── updateDriverLocation ──────────────────────────────────────────────────
-  // The assigned driver broadcasts their GPS position to the booking room.
-  // Validated: caller must be the driver whose session matches the claimed id.
-  socket.on('updateDriverLocation', (data) => {
-    if (!socket.isAuthenticated || socket.sessionUser.role !== 'driver') return;
-
-    const { driverId, location, bookingId } = data;
-    const sessionDriverId = socket.sessionUser.driverId;
-
-    if (!sessionDriverId) return;
-    // Prevent a driver from spoofing another driver's position
-    if (driverId && driverId.toString() !== sessionDriverId.toString()) return;
-    if (!bookingId || !location) return;
-
-    io.to(`booking_${bookingId}`).emit('driverLocationUpdate', {
-      driverId: sessionDriverId,
-      location,
-      timestamp: Date.now()
-    });
-  });
-
-  // ── joinBookingRoom ───────────────────────────────────────────────────────
-  // Allows an authenticated user or driver to subscribe to location updates
-  // for a specific booking.
-  socket.on('joinBookingRoom', (data) => {
-    if (!socket.isAuthenticated) return;
-    const { bookingId } = data;
-    if (bookingId) socket.join(`booking_${bookingId}`);
-  });
-
-  // ── driverAvailabilityUpdate ──────────────────────────────────────────────
-  // A driver toggles their availability; the server joins/leaves the 'drivers'
-  // room accordingly so they receive (or stop receiving) booking alerts.
-  socket.on('driverAvailabilityUpdate', (data) => {
-    if (!socket.isAuthenticated || socket.sessionUser.role !== 'driver') return;
-    const { isAvailable } = data;
-    if (isAvailable) {
-      socket.join('drivers');
-    } else {
-      socket.leave('drivers');
-    }
-  });
-
-  socket.on('disconnect', () => {
-    if (socket.sessionUser && socket.sessionUser.role === 'driver') {
-      socket.leave('drivers');
-    }
-  });
-});
+// All handlers are defined in src/sockets/index.js to keep app.js clean.
+attachSocketHandlers(io);
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 // authLimiter is applied to the entire /auth prefix (login + register).

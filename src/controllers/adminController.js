@@ -1,6 +1,7 @@
 const Driver = require('../models/Driver');
 const User = require('../models/User');
 const Booking = require('../models/Booking');
+const notify = require('../utils/notify');
 
 // ─── List all drivers (with verification status) ──────────────────────────────
 exports.listDrivers = async (req, res) => {
@@ -52,13 +53,8 @@ exports.verifyDriver = async (req, res) => {
     driver.verifiedBy = req.session.user.id;
     await driver.save();
 
-    // Emit a socket event so the driver's dashboard updates in real time
-    if (req.app.io) {
-      req.app.io.emit('driverVerified', {
-        driverId: driver._id,
-        message: 'Your account has been verified. You can now receive bookings.'
-      });
-    }
+    // Notify the driver via their personal room (driver_<id>)
+    notify.driverVerified(req.app.io, { driverId: driver._id });
 
     res.status(200).json({
       status: 'success',
@@ -97,12 +93,7 @@ exports.revokeDriver = async (req, res) => {
     driver.isAvailable = false;
     await driver.save();
 
-    if (req.app.io) {
-      req.app.io.emit('driverRevoked', {
-        driverId: driver._id,
-        message: 'Your verification has been revoked. Please contact support.'
-      });
-    }
+    notify.driverRevoked(req.app.io, { driverId: driver._id });
 
     res.status(200).json({
       status: 'success',
@@ -189,12 +180,10 @@ exports.forceCancelBooking = async (req, res) => {
       });
     }
 
-    if (req.app.io) {
-      req.app.io.emit('bookingCancelled', {
-        bookingId: booking._id,
-        reason: 'Admin force-cancelled (no driver accepted in time)'
-      });
-    }
+    notify.bookingCancelled(req.app.io, {
+      bookingId: booking._id,
+      reason: 'Admin force-cancelled (no driver accepted in time)'
+    });
 
     res.status(200).json({
       status: 'success',
