@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
+const notify = require('../utils/notify');
 
 // ─── Haversine fare calculation ───────────────────────────────────────────────
 function calculateFare(pickupCoords, dropCoords) {
@@ -135,12 +136,13 @@ exports.createBooking = async (req, res) => {
     await booking.save();
 
     // Broadcast to all drivers connected to the 'drivers' Socket.IO room
-    if (req.app.io) {
-      req.app.io.to('drivers').emit('newBookingAlert', {
-        booking,
-        nearbyDriverCount: availableDrivers.length
-      });
-    }
+    notify.bookingCreated(req.app.io, {
+      booking,
+      nearbyDriverCount: availableDrivers.length,
+      staleLocationWarning: staleWarning
+        ? 'Some nearby drivers have not updated their location recently — actual ETAs may vary'
+        : undefined
+    });
 
     res.status(201).json({
       status: 'success',
@@ -374,17 +376,15 @@ exports.acceptBooking = async (req, res) => {
       mongoSession.endSession();
     }
 
-    if (req.app.io) {
-      req.app.io.emit('bookingAccepted', {
-        bookingId: booking._id,
-        driverId,
-        driverName: driver.name,
-        hospitalId: driver.hospital?._id,
-        vehicleInfo: driver.ambulanceDetails
-          ? `${driver.ambulanceDetails.registrationNumber} — ${driver.vehicleType}`
-          : ''
-      });
-    }
+    notify.bookingAccepted(req.app.io, {
+      bookingId: booking._id,
+      driverId,
+      driverName: driver.name,
+      hospitalId: driver.hospital?._id,
+      vehicleInfo: driver.ambulanceDetails
+        ? `${driver.ambulanceDetails.registrationNumber} — ${driver.vehicleType}`
+        : ''
+    });
 
     res.status(200).json({
       status: 'success',
@@ -467,16 +467,13 @@ exports.updateBookingStatus = async (req, res) => {
       .populate('user', 'name')
       .populate('hospital', 'name');
 
-    if (req.app.io) {
-      req.app.io.emit('bookingStatusUpdated', {
-        bookingId: booking._id,
-        status,
-        driverId: req.session.user.driverId,
-        driverName: driver?.user?.name,
-        hospitalName: driver?.hospital?.name,
-        timestamp: Date.now()
-      });
-    }
+    notify.bookingStatusUpdated(req.app.io, {
+      bookingId: booking._id,
+      status,
+      driverId: req.session.user.driverId,
+      driverName: driver?.user?.name,
+      hospitalName: driver?.hospital?.name
+    });
 
     res.status(200).json({
       status: 'success',
@@ -542,9 +539,7 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    if (req.app.io) {
-      req.app.io.emit('bookingCancelled', { bookingId: booking._id });
-    }
+    notify.bookingCancelled(req.app.io, { bookingId: booking._id });
 
     res.status(200).json({ status: 'success', data: { booking } });
   } catch (err) {
@@ -648,13 +643,7 @@ exports.declineBooking = async (req, res) => {
     }
     await booking.save();
 
-    // Re-broadcast so other drivers know this booking is still available.
-    if (req.app.io) {
-      req.app.io.to('drivers').emit('bookingStillPending', {
-        booking,
-        message: 'A driver passed on this booking — it is still available'
-      });
-    }
+    notify.bookingStillPending(req.app.io, { booking });
 
     res.status(200).json({
       status: 'success',
@@ -760,13 +749,13 @@ exports.createAnonymousRequest = async (req, res) => {
     booking._changeReason = 'anonymous_request_created';
     await booking.save();
 
-    if (req.app.io) {
-      req.app.io.to('drivers').emit('anonymousRequestAlert', {
-        booking,
-        nearbyDriverCount: availableDrivers.length,
-        isAnonymous: true
-      });
-    }
+    notify.anonymousRequestCreated(req.app.io, {
+      booking,
+      nearbyDriverCount: availableDrivers.length,
+      staleLocationWarning: staleWarning
+        ? 'Some nearby drivers have not updated their location recently — actual ETAs may vary'
+        : undefined
+    });
 
     res.status(200).json({
       status: 'success',
