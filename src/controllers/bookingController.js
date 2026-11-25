@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
 const notify = require('../utils/notify');
+const { rankDrivers } = require('../utils/dispatchScoring');
 
 // ─── Haversine fare calculation ───────────────────────────────────────────────
 function calculateFare(pickupCoords, dropCoords) {
@@ -103,6 +104,14 @@ exports.createBooking = async (req, res) => {
     const dropCoords = dropLocation?.coordinates;
     const fare = dropCoords ? calculateFare(pickupCoords, dropCoords) : null;
 
+    // ── Smart dispatch scoring (Phase 8) ──────────────────────────────────────
+    // Rank all available drivers by composite score (proximity, rating,
+    // acceptance rate, location recency, vehicle type).  Store the full
+    // ranking snapshot on the booking for analysis and to surface the
+    // suggested driver in the response / socket event.
+    const rankedDrivers = rankDrivers(availableDrivers, pickupCoords);
+    const topScore = rankedDrivers[0] || null;
+
     const booking = new Booking({
       user: req.session.user.id,
       type: 'regular',
@@ -126,7 +135,10 @@ exports.createBooking = async (req, res) => {
             address: 'To be determined'
           },
       fare,
-      status: 'pending'
+      status: 'pending',
+      // Scoring snapshot — top driver recommendation + full ranked list
+      suggestedDriver: topScore ? topScore.driverId : null,
+      dispatchScores: rankedDrivers.slice(0, 10) // store top 10 for analysis
     });
 
     // Audit: who created this booking
@@ -135,10 +147,14 @@ exports.createBooking = async (req, res) => {
     booking._changeReason = 'booking_created';
     await booking.save();
 
-    // Broadcast to all drivers connected to the 'drivers' Socket.IO room
+    // Broadcast to all drivers connected to the 'drivers' Socket.IO room.
+    // The event payload includes the ranked score list so the client can
+    // highlight the suggested driver or sort the UI accordingly.
     notify.bookingCreated(req.app.io, {
       booking,
       nearbyDriverCount: availableDrivers.length,
+      suggestedDriverId: topScore ? topScore.driverId : null,
+      dispatchScores: rankedDrivers.slice(0, 5), // top 5 in the socket payload
       staleLocationWarning: staleWarning
         ? 'Some nearby drivers have not updated their location recently — actual ETAs may vary'
         : undefined
@@ -150,6 +166,8 @@ exports.createBooking = async (req, res) => {
       data: {
         booking,
         nearbyDriverCount: availableDrivers.length,
+        suggestedDriverId: topScore ? topScore.driverId : null,
+        dispatchScores: rankedDrivers.slice(0, 5),
         staleLocationWarning: staleWarning
           ? 'Some nearby drivers have not updated their location recently — actual ETAs may vary'
           : undefined
@@ -320,7 +338,7 @@ exports.acceptBooking = async (req, res) => {
 
       await Driver.findByIdAndUpdate(
         driverId,
-        { isAvailable: false, currentBooking: booking._id },
+        { isAvailable: false, currentBooking: booking._id, $inc: { acceptedCount: 1 } },
         { session: mongoSession }
       );
 
@@ -370,7 +388,8 @@ exports.acceptBooking = async (req, res) => {
 
       await Driver.findByIdAndUpdate(driverId, {
         isAvailable: false,
-        currentBooking: booking._id
+        currentBooking: booking._id,
+        $inc: { acceptedCount: 1 }
       });
     } finally {
       mongoSession.endSession();
@@ -640,6 +659,8 @@ exports.declineBooking = async (req, res) => {
     );
     if (!alreadyDeclined) {
       booking.declinedBy.push(driverId);
+      // Increment decline counter for scoring model — only count once per booking
+      await Driver.findByIdAndUpdate(driverId, { $inc: { declinedCount: 1 } });
     }
     await booking.save();
 
@@ -728,6 +749,10 @@ exports.createAnonymousRequest = async (req, res) => {
       });
     }
 
+    // Smart dispatch scoring for anonymous requests
+    const rankedAnon = rankDrivers(availableDrivers, coordinates);
+    const topAnonScore = rankedAnon[0] || null;
+
     const booking = new Booking({
       type: 'anonymous',
       // isAnonymous is set automatically by the Booking pre-save hook
@@ -742,7 +767,9 @@ exports.createAnonymousRequest = async (req, res) => {
         coordinates,
         address: 'To be determined'
       },
-      status: 'pending'
+      status: 'pending',
+      suggestedDriver: topAnonScore ? topAnonScore.driverId : null,
+      dispatchScores: rankedAnon.slice(0, 10)
     });
 
     // Audit: system-initiated (no changedBy for anonymous)

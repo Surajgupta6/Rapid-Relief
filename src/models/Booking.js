@@ -203,6 +203,36 @@ const bookingSchema = new mongoose.Schema(
       default: null
     },
 
+    // ── Smart Dispatch Scoring (Phase 8) ─────────────────────────────────
+    // suggestedDriver: the highest-scoring driver at booking creation time.
+    // This is a recommendation, not a reservation — any verified driver can
+    // still accept via the normal flow.  Stored for analysis and display.
+    suggestedDriver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Driver',
+      default: null
+    },
+    // dispatchScores: snapshot of the full ranking at booking creation time.
+    // Each entry records the driver's score and the factors that produced it.
+    // Useful for: debugging dispatch, A/B testing weight changes, training
+    // a future ML model on historical dispatch outcomes.
+    dispatchScores: [
+      {
+        driverId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Driver' },
+        totalScore:  Number,
+        distanceKm:  Number,
+        vehicleType: String,
+        factors: {
+          proximity:       Number,
+          rating:          Number,
+          acceptanceRate:  Number,
+          locationRecency: Number,
+          vehicleType:     Number
+        },
+        _id: false // no subdoc IDs needed — this is a point-in-time snapshot
+      }
+    ],
+
     // ── Decline tracking ──────────────────────────────────────────────────
     // Drivers who have declined this booking.  The booking remains 'pending'
     // so other drivers can still claim it.

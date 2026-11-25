@@ -21,4 +21,9 @@ router.post('/drivers/:driverId/revoke', adminController.revokeDriver);
 router.get('/bookings/stale', adminController.listStaleBookings);
 router.post('/bookings/:bookingId/force-cancel', adminController.forceCancelBooking);
 
+// ── Dispatch scoring transparency (Phase 8: Smart Dispatch Scoring) ───────────
+// Returns the score snapshot from booking creation + a live re-score of
+// currently available drivers.  Useful for debugging dispatch decisions.
+router.get('/dispatch/scores/:bookingId', adminController.getDispatchScores);
+
 module.exports = router;

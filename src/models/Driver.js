@@ -155,6 +155,23 @@ const driverSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0
+    },
+
+    // ── Dispatch statistics (Phase 8: Smart Dispatch Scoring) ──────────────────
+    // These counters feed the acceptance-rate factor in the scoring model.
+    // acceptedCount: how many bookings this driver has accepted (all time).
+    // declinedCount: how many bookings this driver has explicitly declined.
+    // The ratio acceptedCount / (acceptedCount + declinedCount) is the
+    // driver's acceptance rate — a reliability signal used by rankDrivers().
+    acceptedCount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    declinedCount: {
+      type: Number,
+      default: 0,
+      min: 0
     }
   },
   { timestamps: true }

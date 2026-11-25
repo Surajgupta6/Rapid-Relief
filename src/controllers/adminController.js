@@ -289,3 +289,68 @@ exports.getStats = async (req, res) => {
     });
   }
 };
+
+// ─── Dispatch score transparency (Phase 8: Smart Dispatch Scoring) ────────────
+// GET /admin/dispatch/scores/:bookingId
+//
+// Returns the dispatch score snapshot stored on the booking at creation time,
+// plus a live re-score of currently available drivers for comparison.
+// Useful for: debugging dispatch decisions, A/B testing weight changes,
+// auditing why a particular driver was (or wasn't) suggested.
+exports.getDispatchScores = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { rankDrivers } = require('../utils/dispatchScoring');
+
+    const booking = await Booking.findById(bookingId)
+      .populate('suggestedDriver', 'name vehicleType rating totalRatings acceptedCount declinedCount')
+      .populate('dispatchScores.driverId', 'name vehicleType')
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({ status: 'error', message: 'Booking not found' });
+    }
+
+    // Live re-score: find currently available verified drivers and re-rank them
+    const pickupCoords = booking.pickupLocation?.coordinates;
+    let liveScores = [];
+    if (pickupCoords) {
+      const liveDrivers = await Driver.find({
+        isAvailable: true,
+        isVerified: true
+      }).limit(50).lean();
+
+      liveScores = rankDrivers(liveDrivers, pickupCoords);
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        bookingId: booking._id,
+        bookingStatus: booking.status,
+        suggestedDriver: booking.suggestedDriver || null,
+        // Snapshot taken at booking creation time
+        creationTimeScores: booking.dispatchScores || [],
+        // Live re-score of currently available drivers
+        liveScores: liveScores.slice(0, 10),
+        meta: {
+          weights: {
+            proximity:       0.40,
+            rating:          0.25,
+            acceptanceRate:  0.20,
+            locationRecency: 0.10,
+            vehicleType:     0.05
+          },
+          description: 'Scores are weighted sums of 5 normalised factors. All factors are in [0, 1].'
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Admin getDispatchScores error:', err);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch dispatch scores',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
